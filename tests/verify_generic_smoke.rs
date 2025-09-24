@@ -7,7 +7,7 @@ use nargo::parse_all;
 use tempfile::tempdir;
 
 #[test]
-fn gates_with_fake_backend() {
+fn verify_with_generic_backend() {
     // Compile a tiny program to get a valid artifact
     let root = std::path::Path::new("");
     let file_name = std::path::Path::new("main.nr");
@@ -24,28 +24,37 @@ fn gates_with_fake_backend() {
     let program_path = dir.path().join("program.json");
     fs::write(&program_path, serde_json::to_vec(&artifact).unwrap()).unwrap();
 
-    // Create a fake backend script that prints gates JSON to stdout
-    let backend_path = dir.path().join("fake_backend.sh");
+    // Create a fake backend script that exits 0 for verify
+    let backend_path = dir.path().join("fake_verify.sh");
     let script = r#"#!/usr/bin/env bash
 set -euo pipefail
-# Accept any args but ignore them; print expected JSON shape
-cat <<'JSON'
-{"functions":[{"acir_opcodes": 3, "circuit_size": 10, "gates_per_opcode": [4,3,3]}]}
-JSON
+# accept args; exit 0 to indicate ok
+exit 0
 "#;
     fs::write(&backend_path, script).unwrap();
     let mut perms = fs::metadata(&backend_path).unwrap().permissions();
     perms.set_mode(0o755);
     fs::set_permissions(&backend_path, perms).unwrap();
 
-    // Run gates_cmd
-    noir_bench::gates_cmd::run(
+    // Create a dummy proof file
+    let proof_path = dir.path().join("proof.bin");
+    fs::write(&proof_path, b"deadbeef").unwrap();
+
+    // Use template to call script with placeholders
+    let template = format!("{} --verify -b {{artifact}} -p {{proof}}", backend_path.to_string_lossy());
+
+    noir_bench::verify_cmd::run(
         program_path.clone(),
-        Some("fake".to_string()),
-        Some(backend_path.clone()),
-        vec!["--include_gates_per_opcode".into()],
+        proof_path.clone(),
+        Some("generic".to_string()),
         None,
+        vec![],
+        Some(template),
+        Some(1),
+        Some(0),
         None,
     )
     .unwrap();
-} 
+}
+
+

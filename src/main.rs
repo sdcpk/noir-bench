@@ -3,7 +3,7 @@
 use clap::{Parser, Subcommand};
 use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
 
-use noir_bench::{exec_cmd, gates_cmd, prove_cmd};
+use noir_bench::{exec_cmd, gates_cmd, prove_cmd, verify_cmd};
 
 #[derive(Parser, Debug)]
 #[command(name = "noir-bench")] 
@@ -36,6 +36,12 @@ enum Commands {
         /// Generate flamegraph SVG for Brillig execution
         #[arg(long)]
         flamegraph: bool,
+        /// Number of measured iterations to run
+        #[arg(long, default_value_t = 1)]
+        iterations: usize,
+        /// Number of warmup iterations to run before measuring
+        #[arg(long, default_value_t = 0)]
+        warmup: usize,
     },
 
     /// Report gates via backend provider
@@ -52,6 +58,9 @@ enum Commands {
         /// Additional args passed to backend after its gates command
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         backend_args: Vec<String>,
+        /// Generic backend command template (use placeholders like {artifact})
+        #[arg(long)]
+        template: Option<String>,
         /// Write machine-readable JSON report to this file
         #[arg(long)]
         json: Option<std::path::PathBuf>,
@@ -74,9 +83,49 @@ enum Commands {
         /// Additional args passed to backend
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         backend_args: Vec<String>,
+        /// Generic backend command template (placeholders: {artifact},{witness},{proof},{outdir})
+        #[arg(long)]
+        template: Option<String>,
         /// Timeout seconds
         #[arg(long, default_value_t = 0)]
         timeout: u64,
+        /// Number of measured iterations to run
+        #[arg(long, default_value_t = 1)]
+        iterations: usize,
+        /// Number of warmup iterations to run before measuring
+        #[arg(long, default_value_t = 0)]
+        warmup: usize,
+        /// Write machine-readable JSON report to this file
+        #[arg(long)]
+        json: Option<std::path::PathBuf>,
+    },
+
+    /// Verify a proof via backend provider
+    Verify {
+        /// Path to program artifact (program.json)
+        #[arg(long)]
+        artifact: std::path::PathBuf,
+        /// Path to proof file
+        #[arg(long)]
+        proof: std::path::PathBuf,
+        /// Backend name (e.g., barretenberg)
+        #[arg(long)]
+        backend: Option<String>,
+        /// Path to backend binary
+        #[arg(long)]
+        backend_path: Option<std::path::PathBuf>,
+        /// Additional args passed to backend
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        backend_args: Vec<String>,
+        /// Generic backend command template (placeholders: {artifact},{proof})
+        #[arg(long)]
+        template: Option<String>,
+        /// Number of measured iterations to run
+        #[arg(long, default_value_t = 1)]
+        iterations: usize,
+        /// Number of warmup iterations to run before measuring
+        #[arg(long, default_value_t = 0)]
+        warmup: usize,
         /// Write machine-readable JSON report to this file
         #[arg(long)]
         json: Option<std::path::PathBuf>,
@@ -101,18 +150,22 @@ fn main() {
     init_tracing(cli.verbose);
 
     let result = match cli.command {
-        Commands::Exec { artifact, prover_toml, output, json, flamegraph } => {
-            exec_cmd::run(artifact, prover_toml, output, json, flamegraph)
+        Commands::Exec { artifact, prover_toml, output, json, flamegraph, iterations, warmup } => {
+            exec_cmd::run(artifact, prover_toml, output, json, flamegraph, Some(iterations), Some(warmup))
         }
-        Commands::Gates { artifact, backend, backend_path, backend_args, json } => gates_cmd::run(
+        Commands::Gates { artifact, backend, backend_path, backend_args, template, json } => gates_cmd::run(
             artifact,
             backend,
             backend_path,
             backend_args,
+            template,
             json,
         ),
-        Commands::Prove { artifact, prover_toml, backend, backend_path, backend_args, timeout, json } => {
-            prove_cmd::run(artifact, prover_toml, backend, backend_path, backend_args, timeout, json)
+        Commands::Prove { artifact, prover_toml, backend, backend_path, backend_args, template, timeout, iterations, warmup, json } => {
+            prove_cmd::run(artifact, prover_toml, backend, backend_path, backend_args, template, timeout, Some(iterations), Some(warmup), json)
+        }
+        Commands::Verify { artifact, proof, backend, backend_path, backend_args, template, iterations, warmup, json } => {
+            verify_cmd::run(artifact, proof, backend, backend_path, backend_args, template, Some(iterations), Some(warmup), json)
         }
     };
 

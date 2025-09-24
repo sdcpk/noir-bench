@@ -51,6 +51,7 @@ JSON
         Some("barretenberg".into()),
         Some(backend),
         vec!["--include_gates_per_opcode".into()],
+        None,
         Some(out_json.clone()),
     )
     .unwrap();

@@ -3,7 +3,9 @@ use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{BackendInfo, BenchError, BenchResult, CommonMeta, GatesOpcodeBreakdown, GatesReport};
+use crate::{BackendInfo, BenchError, BenchResult, CommonMeta, GatesOpcodeBreakdown, GatesReport, SystemInfo, collect_system_info};
+use noir_artifact_cli::fs::artifact::read_program_from_file;
+use shlex::Shlex;
 
 pub trait GatesProvider {
     fn gates(&self, artifact: &Path) -> BenchResult<BackendGatesResponse>;
@@ -36,7 +38,66 @@ impl GatesProvider for BackendGatesProvider {
     }
 
     fn backend_info(&self) -> BackendInfo {
-        BackendInfo { name: self.backend_name.clone(), version: None }
+        // Try `<backend_path> --version`
+        let version = Command::new(&self.backend_path)
+            .arg("--version")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        BackendInfo { name: self.backend_name.clone(), version }
+    }
+}
+
+pub struct GenericGatesProvider {
+    pub command_template: String,
+    pub extra_args: Vec<String>,
+}
+
+impl GenericGatesProvider {
+    fn build_command(&self, artifact: &Path) -> BenchResult<Command> {
+        let mut parts: Vec<String> = Shlex::new(&self.command_template).collect();
+        if parts.is_empty() { return Err(BenchError::Message("empty command template".into())); }
+        let artifact_str = artifact.to_string_lossy();
+        for p in &mut parts {
+            *p = p.replace("{artifact}", &artifact_str);
+        }
+        let mut cmd = Command::new(&parts[0]);
+        for p in &parts[1..] { cmd.arg(p); }
+        for a in &self.extra_args { cmd.arg(a); }
+        Ok(cmd)
+    }
+}
+
+impl GatesProvider for GenericGatesProvider {
+    fn gates(&self, artifact: &Path) -> BenchResult<BackendGatesResponse> {
+        let mut cmd = self.build_command(artifact)?;
+        let output = cmd.output().map_err(|e| BenchError::Message(e.to_string()))?;
+        if !output.status.success() {
+            return Err(BenchError::Message(format!(
+                "generic gates failed: status={} stderr={}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr)
+            )));
+        }
+        let parsed: BackendGatesResponse = serde_json::from_slice(&output.stdout)
+            .map_err(|e| BenchError::Message(format!("failed to parse gates json: {e}")))?;
+        Ok(parsed)
+    }
+
+    fn backend_info(&self) -> BackendInfo {
+        let mut sh = Shlex::new(&self.command_template);
+        let program = sh.next().unwrap_or_else(|| "generic".into());
+        // Try `<program> --version`
+        let version = Command::new(&program)
+            .arg("--version")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        BackendInfo { name: "generic".into(), version }
     }
 }
 
@@ -69,14 +130,21 @@ pub fn run(
     backend: Option<String>,
     backend_path: Option<PathBuf>,
     mut backend_args: Vec<String>,
+    command_template: Option<String>,
     json_out: Option<PathBuf>,
 ) -> BenchResult<()> {
     let backend_name = backend.unwrap_or_else(|| "barretenberg".to_string());
-    let backend_path = backend_path.ok_or_else(|| BenchError::Message("--backend-path is required".into()))?;
 
-    // Default command and args similar to profiler
-    let gates_command = "gates".to_string();
-    let provider = BackendGatesProvider { backend_name: backend_name.clone(), backend_path, gates_command, extra_args: backend_args };
+    let provider: Box<dyn GatesProvider> = match (backend_name.as_str(), command_template.as_ref()) {
+        ("generic", Some(tpl)) | (_, Some(tpl)) => {
+            Box::new(GenericGatesProvider { command_template: tpl.clone(), extra_args: backend_args })
+        }
+        _ => {
+            let backend_path = backend_path.ok_or_else(|| BenchError::Message("--backend-path is required".into()))?;
+            let gates_command = "gates".to_string();
+            Box::new(BackendGatesProvider { backend_name: backend_name.clone(), backend_path, gates_command, extra_args: backend_args })
+        }
+    };
 
     let resp = provider.gates(&artifact)?;
 
@@ -92,8 +160,11 @@ pub fn run(
         }
     }
 
-    let meta = CommonMeta { name: "gates".into(), timestamp: now_string(), noir_version: "".into(), artifact_path: artifact.clone() };
-    let report = GatesReport { meta, total_gates, acir_opcodes, per_opcode, backend: provider.backend_info() };
+    // Noir version from artifact if available
+    let noir_version = read_program_from_file(&artifact).ok().map(|p| p.noir_version).unwrap_or_default();
+    let meta = CommonMeta { name: "gates".into(), timestamp: now_string(), noir_version, artifact_path: artifact.clone(), cli_args: std::env::args().collect() };
+    let system: SystemInfo = collect_system_info();
+    let report = GatesReport { meta, total_gates, acir_opcodes, per_opcode, backend: provider.backend_info(), system: Some(system) };
 
     if let Some(json_path) = json_out { write_json(&json_path, &report)?; }
 
