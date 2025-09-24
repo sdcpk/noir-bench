@@ -6,7 +6,7 @@ use noir_artifact_cli::fs::{artifact::read_program_from_file, inputs::read_input
 use noirc_artifacts::debug::DebugArtifact;
 use tracing::info;
 
-use crate::{BenchError, BenchResult, CommonMeta, ExecReport};
+use crate::{BenchError, BenchResult, CommonMeta, ExecReport, collect_system_info, SystemInfo, IterationStats, compute_iteration_stats};
 
 #[cfg(feature = "mem")]
 fn capture_peak_mem() -> Option<u64> {
@@ -35,6 +35,8 @@ pub fn run(
     output_dir: Option<PathBuf>,
     json_out: Option<PathBuf>,
     flamegraph: bool,
+    iterations: Option<usize>,
+    warmup: Option<usize>,
 ) -> BenchResult<()> {
     info!("loading artifact");
     let mut program = read_program_from_file(&artifact).map_err(|e| BenchError::Message(e.to_string()))?;
@@ -42,20 +44,28 @@ pub fn run(
     // Inputs
     let (inputs_map, _) = read_inputs_from_file(&prover_toml.with_extension("toml"), &program.abi)
         .map_err(|e| BenchError::Message(e.to_string()))?;
-    let initial_witness = program.abi.encode(&inputs_map, None).map_err(|e| BenchError::Message(e.to_string()))?;
 
-    // Execute with profiling
-    info!("executing (profiling)");
-    let start = Instant::now();
-    let (_witness_stack, mut profiling_samples) = nargo::ops::execute_program_with_profiling(
-        &program.bytecode,
-        initial_witness,
-        &Bn254BlackBoxSolver(false),
-        &mut nargo::foreign_calls::DefaultForeignCallBuilder::default().with_output(std::io::stdout()).build(),
-    )
-    .map_err(|e| BenchError::Message(format!("execution failed: {e}")))?;
-    let duration_ms = start.elapsed().as_millis();
-    let samples_count = profiling_samples.len();
+    // Warmup and iterations
+    let iter_n = iterations.unwrap_or(1);
+    let warmup_n = warmup.unwrap_or(0);
+    let mut last_profiling = Vec::new();
+    let mut times: Vec<u128> = Vec::new();
+    for i in 0..(warmup_n + iter_n) {
+        let initial_witness = program.abi.encode(&inputs_map, None).map_err(|e| BenchError::Message(e.to_string()))?;
+        let start = Instant::now();
+        let (_witness_stack, profiling_samples) = nargo::ops::execute_program_with_profiling(
+            &program.bytecode,
+            initial_witness,
+            &Bn254BlackBoxSolver(false),
+            &mut nargo::foreign_calls::DefaultForeignCallBuilder::default().with_output(std::io::stdout()).build(),
+        )
+        .map_err(|e| BenchError::Message(format!("execution failed: {e}")))?;
+        let dur = start.elapsed().as_millis();
+        if i >= warmup_n { times.push(dur); }
+        last_profiling = profiling_samples;
+    }
+    let duration_ms = *times.last().unwrap_or(&0);
+    let samples_count = last_profiling.len();
 
     // Optional flamegraph
     let mut flamegraph_svg = None;
@@ -71,7 +81,7 @@ pub fn run(
         // Convert ACVM profiling samples into profiler-like samples lines
         let samples: Vec<exec_samples::BrilligExecSample> = {
             use acvm::acir::circuit::OpcodeLocation;
-            profiling_samples
+            last_profiling
                 .iter_mut()
                 .map(|s| {
                     let call_stack = std::mem::take(&mut s.call_stack);
@@ -109,8 +119,11 @@ pub fn run(
         timestamp: now_string(),
         noir_version: program.noir_version.clone(),
         artifact_path: artifact.clone(),
+        cli_args: std::env::args().collect(),
     };
-    let report = ExecReport { meta, execution_time_ms: duration_ms, samples_count, peak_memory_bytes: capture_peak_mem(), flamegraph_svg };
+    let system: SystemInfo = collect_system_info();
+    let iter_stats: Option<IterationStats> = Some(compute_iteration_stats(times, iter_n, warmup_n));
+    let report = ExecReport { meta, execution_time_ms: duration_ms, samples_count, peak_memory_bytes: capture_peak_mem(), flamegraph_svg, system: Some(system), iterations: iter_stats };
 
     // Output JSON
     if let Some(json_path) = json_out { write_json(&json_path, &report)?; }

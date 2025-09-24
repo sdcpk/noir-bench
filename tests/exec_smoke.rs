@@ -33,5 +33,5 @@ fn exec_smoke() {
     // Run exec
     let out_dir = dir.path().join("out");
     std::fs::create_dir_all(&out_dir).unwrap();
-    noir_bench::exec_cmd::run(program_path, prover_toml, Some(out_dir.clone()), None, false).unwrap();
+    noir_bench::exec_cmd::run(program_path, prover_toml, Some(out_dir.clone()), None, false, Some(1), Some(0)).unwrap();
 } 

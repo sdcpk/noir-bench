@@ -88,12 +88,12 @@ Verify a proof using Barretenberg or generic provider. Output JSON shape:
 { "verify_time_ms": 123, "ok": true }
 ```
 
-CLI:
+CLI (Barretenberg; pass public inputs and vk via extra args as needed):
 
 ```sh
-noir-bench verify --artifact program.json --proof proof.bin \
+noir-bench verify --artifact program.json --proof out/proof \
   --backend barretenberg --backend-path bb \
-  --json out/verify.json
+  --json out/verify.json -- -i out/public_inputs -k out/vk/vk -s ultra_honk
 ```
 
 ## Iterations and warmup
