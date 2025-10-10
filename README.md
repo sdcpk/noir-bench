@@ -134,7 +134,7 @@ cd ../merkle_verify && nargo compile
 Run the suite:
 
 ```sh
-noir-bench suite --config examples/suite.yml --jsonl out/suite.jsonl --summary out/suite.json
+noir-bench suite --config examples/suite_base.yml --jsonl out/suite.jsonl --summary out/suite.json
 ```
 
 The suite demonstrates base runs and a proof-scheme variant (e.g., `-s ultra_honk`) using backend args.
@@ -143,10 +143,10 @@ The suite demonstrates base runs and a proof-scheme variant (e.g., `-s ultra_hon
 
 ```sh
 # Base
-noir-bench suite --config examples/suite.yml --jsonl out/suite_base.jsonl --summary out/suite_base.json
+noir-bench suite --config examples/suite_base.yml --jsonl out/suite_base.jsonl --summary out/suite_base.json
 
 # Scheme variant (e.g., UltraHonk)
-noir-bench suite --config examples/suite_scheme.yml --jsonl out/suite_scheme.jsonl --summary out/suite_scheme.json
+noir-bench suite --config examples/suite_ultrahonk.yml --jsonl out/suite_scheme.jsonl --summary out/suite_scheme.json
 
 # Compare first entries from both runs (demo)
 head -n1 out/suite_base.jsonl > /tmp/base.json
