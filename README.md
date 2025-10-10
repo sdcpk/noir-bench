@@ -52,7 +52,7 @@ Currently supports Barretenberg by shelling out to `bb`.
 - Use `--backend-path` to point to the backend binary.
 - Any extra backend flags can be appended after `--` and will be forwarded.
 
-### Generic providers
+### Generic providers (caveats)
 
 You can run gates/prove/verify against any binary by providing a command template via `--template`. Placeholders:
 
@@ -60,6 +60,10 @@ You can run gates/prove/verify against any binary by providing a command templat
 - `{witness}`: path to generated witness (prove only)
 - `{proof}`: output proof path (prove) / input proof path (verify)
 - `{outdir}`: output directory if applicable
+
+Notes:
+- Today, Barretenberg is the supported backend. Generic templates are best‑effort wrappers for other CLIs; ensure your command prints the expected JSON shapes.
+- Placeholders are substituted from noir-bench inputs. You pass the artifact path once via `--artifact`; `{artifact}` in the template expands to that same path.
 
 Examples:
 
@@ -131,10 +135,10 @@ cd ../range_bits && nargo compile
 cd ../merkle_verify && nargo compile
 ```
 
-Run the suite:
+Run the suite (base scheme):
 
 ```sh
-noir-bench suite --config examples/suite_base.yml --jsonl out/suite.jsonl --summary out/suite.json
+noir-bench suite --config examples/suite_base.yml --jsonl out/suite_base.jsonl --summary out/suite_base.json
 ```
 
 The suite demonstrates base runs and a proof-scheme variant (e.g., `-s ultra_honk`) using backend args.
@@ -146,12 +150,12 @@ The suite demonstrates base runs and a proof-scheme variant (e.g., `-s ultra_hon
 noir-bench suite --config examples/suite_base.yml --jsonl out/suite_base.jsonl --summary out/suite_base.json
 
 # Scheme variant (e.g., UltraHonk)
-noir-bench suite --config examples/suite_ultrahonk.yml --jsonl out/suite_scheme.jsonl --summary out/suite_scheme.json
+noir-bench suite --config examples/suite_ultrahonk.yml --jsonl out/suite_ultrahonk.jsonl --summary out/suite_ultrahonk.json
 
 # Compare first entries from both runs (demo)
 head -n1 out/suite_base.jsonl > /tmp/base.json
-head -n1 out/suite_scheme.jsonl > /tmp/scheme.json
-noir-bench compare --baseline /tmp/base.json --contender /tmp/scheme.json --fail_on_regress 10
+head -n1 out/suite_ultrahonk.jsonl > /tmp/ultra.json
+noir-bench compare --baseline /tmp/base.json --contender /tmp/ultra.json --fail_on_regress 10
 ```
 
 Or run everything:
