@@ -1,0 +1,16 @@
+circuits:
+  - examples/simple_hash/target/simple_hash.json
+  - examples/range_bits/target/range_bits.json
+  - examples/merkle_verify/target/merkle_verify.json
+
+tasks: [gates, prove]
+
+# choose barretenberg by default, pass backend args for scheme variant
+backend: barretenberg
+backend_path: bb
+
+# Example scheme variant (uncomment or duplicate suite with these args):
+# backend_args: ["-s", "ultra_honk"]
+
+iterations: 3
+warmup: 1

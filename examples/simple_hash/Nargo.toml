@@ -1,0 +1,5 @@
+[package]
+name = "simple_hash"
+version = "0.1.0"
+type = "bin"
+authors = ["noir-bench"]

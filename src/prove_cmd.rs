@@ -37,7 +37,7 @@ impl BarretenbergProverProvider {
         &self,
         mut cmd: Command,
         timeout: Duration,
-    ) -> BenchResult<std::process::ExitStatus> {
+    ) -> BenchResult<(std::process::ExitStatus, Option<u64>)> {
         #[cfg(feature = "mem")]
         use sysinfo::{PidExt, ProcessRefreshKind, RefreshKind, System, SystemExt};
 
@@ -61,7 +61,12 @@ impl BarretenbergProverProvider {
                         }
                     }
                 }
-                return Ok(status);
+                return Ok((status, {
+                    #[cfg(feature = "mem")]
+                    { Some(peak_rss) }
+                    #[cfg(not(feature = "mem"))]
+                    { None }
+                }));
             }
             if timeout.as_secs() > 0 && start.elapsed() >= timeout {
                 let _ = child.kill();
@@ -91,8 +96,10 @@ impl ProverProvider for BarretenbergProverProvider {
         let compiled: noirc_driver::CompiledProgram = program.clone().into();
         let prover_file = inputs.map(|p| p.with_extension("toml"));
         let prover_file = prover_file.as_ref().map(|p| p.as_path()).unwrap_or_else(|| Path::new("Prover.toml"));
+        let witness_start = Instant::now();
         let exec_res = execute_program_artifact(&compiled, &Bn254BlackBoxSolver(false), &mut DefaultForeignCallBuilder::default().build(), prover_file)
             .map_err(|e| BenchError::Message(format!("execution for witness failed: {e}")))?;
+        let witness_ms = witness_start.elapsed().as_millis();
 
         let tempdir = tempfile::tempdir().map_err(|e| BenchError::Message(e.to_string()))?;
         let witness_path = save_witness_to_dir(&exec_res.witness_stack, "witness", tempdir.path())
@@ -109,9 +116,10 @@ impl ProverProvider for BarretenbergProverProvider {
         for a in &self.extra_args { cmd.arg(a); }
         cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
 
-        let start = Instant::now();
-        let status = self.run_bb_with_timeout(cmd, timeout)?;
-        let prove_time_ms = start.elapsed().as_millis();
+        let backend_start = Instant::now();
+        let (status, peak_rss) = self.run_bb_with_timeout(cmd, timeout)?;
+        let backend_ms = backend_start.elapsed().as_millis();
+        let prove_time_ms = witness_ms + backend_ms;
         if !status.success() {
             return Err(BenchError::Message(format!("backend prove failed: status={status}")));
         }
@@ -124,17 +132,23 @@ impl ProverProvider for BarretenbergProverProvider {
                 .map(|m| m.len() as u64)
         };
 
+        let artifact_bytes = std::fs::read(artifact).ok();
+        let inputs_bytes = inputs.and_then(|p| std::fs::read(p).ok());
         let meta = CommonMeta {
             name: "prove".into(),
             timestamp: time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap_or_default(),
             noir_version: program.noir_version.clone(),
             artifact_path: artifact.to_path_buf(),
             cli_args: std::env::args().collect(),
+            artifact_sha256: artifact_bytes.as_ref().map(|b| crate::sha256_hex(b)),
+            inputs_sha256: inputs_bytes.as_ref().map(|b| crate::sha256_hex(b)),
         };
         let report = ProveReport {
             meta,
             prove_time_ms,
-            peak_memory_bytes: None,
+            witness_gen_time_ms: Some(witness_ms),
+            backend_prove_time_ms: Some(backend_ms),
+            peak_memory_bytes: peak_rss,
             proof_size_bytes,
             gate_count: None,
             backend: self.backend_info(),
@@ -205,16 +219,22 @@ impl ProverProvider for GenericProverProvider {
             return Err(BenchError::Message(format!("generic prove failed: status={status}")));
         }
         let proof_size_bytes = std::fs::metadata(&proof_path).ok().map(|m| m.len() as u64);
+        let artifact_bytes = std::fs::read(artifact).ok();
+        let inputs_bytes = inputs.and_then(|p| std::fs::read(p).ok());
         let meta = CommonMeta {
             name: "prove".into(),
             timestamp: time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap_or_default(),
             noir_version: program.noir_version.clone(),
             artifact_path: artifact.to_path_buf(),
             cli_args: std::env::args().collect(),
+            artifact_sha256: artifact_bytes.as_ref().map(|b| crate::sha256_hex(b)),
+            inputs_sha256: inputs_bytes.as_ref().map(|b| crate::sha256_hex(b)),
         };
         Ok(ProveReport {
             meta,
             prove_time_ms,
+            witness_gen_time_ms: None,
+            backend_prove_time_ms: None,
             peak_memory_bytes: None,
             proof_size_bytes,
             gate_count: None,

@@ -117,6 +117,49 @@ JSON includes per-iteration stats under `iterations`:
 
 All JSON reports now include `system` (CPU model, cores, RAM, OS) and backend `name/version`. CLI args are captured in `meta.cli_args`.
 
+## CSV / Markdown export
+
+Add `--csv out.csv` or `--md out.md` alongside `--json` to emit tabular summaries.
+
+## Examples & Suite
+
+Example circuits are under `examples/`. To compile them, use Noir (nargo):
+
+```sh
+cd examples/simple_hash && nargo compile
+cd ../range_bits && nargo compile
+cd ../merkle_verify && nargo compile
+```
+
+Run the suite:
+
+```sh
+noir-bench suite --config examples/suite.yml --jsonl out/suite.jsonl --summary out/suite.json
+```
+
+The suite demonstrates base runs and a proof-scheme variant (e.g., `-s ultra_honk`) using backend args.
+
+### Variant suite (scheme/hash presets)
+
+```sh
+# Base
+noir-bench suite --config examples/suite.yml --jsonl out/suite_base.jsonl --summary out/suite_base.json
+
+# Scheme variant (e.g., UltraHonk)
+noir-bench suite --config examples/suite_scheme.yml --jsonl out/suite_scheme.jsonl --summary out/suite_scheme.json
+
+# Compare first entries from both runs (demo)
+head -n1 out/suite_base.jsonl > /tmp/base.json
+head -n1 out/suite_scheme.jsonl > /tmp/scheme.json
+noir-bench compare --baseline /tmp/base.json --contender /tmp/scheme.json --fail_on_regress 10
+```
+
+Or run everything:
+
+```sh
+./examples/run_examples.sh
+```
+
 ## Logging
 
 Set `NOIR_BENCH_LOG` or pass `--verbose`. Example:

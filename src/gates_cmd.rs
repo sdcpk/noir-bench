@@ -4,7 +4,9 @@ use std::process::Command;
 use serde::{Deserialize, Serialize};
 
 use crate::{BackendInfo, BenchError, BenchResult, CommonMeta, GatesOpcodeBreakdown, GatesReport, SystemInfo, collect_system_info};
+use acvm::acir::circuit::Opcode as AcirOpcode;
 use noir_artifact_cli::fs::artifact::read_program_from_file;
+// opcode naming best-effort is deferred; we keep stable labels for now
 use shlex::Shlex;
 
 pub trait GatesProvider {
@@ -156,15 +158,55 @@ pub fn run(
         total_gates = func.total_gates;
         acir_opcodes = func.acir_opcodes;
         for (i, g) in func.gates_per_opcode.iter().copied().enumerate() {
+            // TODO: map to real opcode name via debug info (needs artifact debug symbols)
             per_opcode.push(GatesOpcodeBreakdown { index: i, opcode: format!("acir[{i}]"), gates: g });
         }
     }
 
-    // Noir version from artifact if available
-    let noir_version = read_program_from_file(&artifact).ok().map(|p| p.noir_version).unwrap_or_default();
-    let meta = CommonMeta { name: "gates".into(), timestamp: now_string(), noir_version, artifact_path: artifact.clone(), cli_args: std::env::args().collect() };
+    // Noir version and sha256 from artifact if available
+    let (noir_version, artifact_sha256, opcode_names): (String, Option<String>, Vec<String>) = match read_program_from_file(&artifact) {
+        Ok(p) => {
+            let bytes = serde_json::to_vec(&p).ok();
+            let sha = bytes.as_ref().map(|b| crate::sha256_hex(b));
+            let names: Vec<String> = p
+                .bytecode
+                .functions
+                .get(0)
+                .map(|f| {
+                    f.opcodes
+                        .iter()
+                        .map(|op: &AcirOpcode<_>| match op {
+                            AcirOpcode::BlackBoxFuncCall(_) => "bb::call".to_string(),
+                            AcirOpcode::MemoryOp { .. } => "acir::memory".to_string(),
+                            AcirOpcode::Call { .. } => "acir::call".to_string(),
+                            _ => "acir::op".to_string(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            (p.noir_version, sha, names)
+        }
+        Err(_) => (String::new(), None, Vec::new())
+    };
+
+    // Replace placeholder opcode labels with names if lengths match
+    if !opcode_names.is_empty() && opcode_names.len() == per_opcode.len() {
+        for (i, item) in per_opcode.iter_mut().enumerate() {
+            item.opcode = opcode_names[i].clone();
+        }
+    }
+    let meta = CommonMeta { name: "gates".into(), timestamp: now_string(), noir_version, artifact_path: artifact.clone(), cli_args: std::env::args().collect(), artifact_sha256, inputs_sha256: None };
     let system: SystemInfo = collect_system_info();
-    let report = GatesReport { meta, total_gates, acir_opcodes, per_opcode, backend: provider.backend_info(), system: Some(system) };
+    // Percentages per opcode
+    let per_opcode_percent = if total_gates > 0 {
+        let mut v = Vec::new();
+        for item in &per_opcode {
+            let pct = (item.gates as f64) * 100.0 / (total_gates as f64);
+            v.push((item.opcode.clone(), pct));
+        }
+        Some(v)
+    } else { None };
+    let report = GatesReport { meta, total_gates, acir_opcodes, per_opcode, per_opcode_percent, backend: provider.backend_info(), system: Some(system) };
 
     if let Some(json_path) = json_out { write_json(&json_path, &report)?; }
 

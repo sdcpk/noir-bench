@@ -2,6 +2,8 @@ pub mod exec_cmd;
 pub mod gates_cmd;
 pub mod prove_cmd;
 pub mod verify_cmd;
+pub mod suite_cmd;
+pub mod compare_cmd;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -44,6 +46,8 @@ pub struct CommonMeta {
     pub noir_version: String,
     pub artifact_path: PathBuf,
     pub cli_args: Vec<String>,
+    pub artifact_sha256: Option<String>,
+    pub inputs_sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,6 +73,8 @@ pub struct ProveReport {
     #[serde(flatten)]
     pub meta: CommonMeta,
     pub prove_time_ms: u128,
+    pub witness_gen_time_ms: Option<u128>,
+    pub backend_prove_time_ms: Option<u128>,
     pub peak_memory_bytes: Option<u64>,
     pub proof_size_bytes: Option<u64>,
     pub gate_count: Option<u64>,
@@ -91,6 +97,7 @@ pub struct GatesReport {
     pub total_gates: usize,
     pub acir_opcodes: usize,
     pub per_opcode: Vec<GatesOpcodeBreakdown>,
+    pub per_opcode_percent: Option<Vec<(String, f64)>>,
     pub backend: BackendInfo,
     pub system: Option<SystemInfo>,
 } 
@@ -134,4 +141,15 @@ pub fn compute_iteration_stats(times_ms: Vec<u128>, iterations: usize, warmup: u
     }).sum::<f64>() / len;
     let stddev = var.sqrt();
     IterationStats { iterations, warmup, times_ms, avg_ms: Some(avg), min_ms: Some(min), max_ms: Some(max), stddev_ms: Some(stddev) }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Fingerprints {
+    pub acir_hash: Option<String>,
+    pub inputs_hash: Option<String>,
+}
+
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    use sha256::digest;
+    digest(bytes)
 }

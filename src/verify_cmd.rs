@@ -29,12 +29,15 @@ impl VerifyProvider for BarretenbergVerifyProvider {
         let status = cmd.status().map_err(|e| BenchError::Message(e.to_string()))?;
         let verify_time_ms = start.elapsed().as_millis();
         let ok = status.success();
+        let artifact_bytes = std::fs::read(artifact).ok();
         let meta = CommonMeta {
             name: "verify".into(),
             timestamp: time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap_or_default(),
             noir_version: program.noir_version,
             artifact_path: artifact.to_path_buf(),
             cli_args: std::env::args().collect(),
+            artifact_sha256: artifact_bytes.as_ref().map(|b| crate::sha256_hex(b)),
+            inputs_sha256: None,
         };
         let report = VerifyReport { meta, verify_time_ms, ok, backend: self.backend_info(), system: Some(collect_system_info()), iterations: None };
         Ok(report)
@@ -82,12 +85,15 @@ impl VerifyProvider for GenericVerifyProvider {
         let status = cmd.status().map_err(|e| BenchError::Message(e.to_string()))?;
         let verify_time_ms = start.elapsed().as_millis();
         let ok = status.success();
+        let artifact_bytes = std::fs::read(artifact).ok();
         let meta = CommonMeta {
             name: "verify".into(),
             timestamp: time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap_or_default(),
             noir_version: program.noir_version,
             artifact_path: artifact.to_path_buf(),
             cli_args: std::env::args().collect(),
+            artifact_sha256: artifact_bytes.as_ref().map(|b| crate::sha256_hex(b)),
+            inputs_sha256: None,
         };
         let report = VerifyReport { meta, verify_time_ms, ok, backend: self.backend_info(), system: Some(collect_system_info()), iterations: None };
         Ok(report)

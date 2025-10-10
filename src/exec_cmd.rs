@@ -114,12 +114,17 @@ pub fn run(
     }
 
     // Build report
+    // fingerprints
+    let artifact_bytes = std::fs::read(&artifact).ok();
+    let inputs_bytes = std::fs::read(&prover_toml).ok();
     let meta = CommonMeta {
         name: "exec".to_string(),
         timestamp: now_string(),
         noir_version: program.noir_version.clone(),
         artifact_path: artifact.clone(),
         cli_args: std::env::args().collect(),
+        artifact_sha256: artifact_bytes.as_ref().map(|b| crate::sha256_hex(b)),
+        inputs_sha256: inputs_bytes.as_ref().map(|b| crate::sha256_hex(b)),
     };
     let system: SystemInfo = collect_system_info();
     let iter_stats: Option<IterationStats> = Some(compute_iteration_stats(times, iter_n, warmup_n));

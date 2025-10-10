@@ -1,0 +1,5 @@
+[package]
+name = "range_bits"
+version = "0.1.0"
+type = "bin"
+authors = ["noir-bench"]

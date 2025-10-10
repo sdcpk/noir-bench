@@ -1,0 +1,13 @@
+circuits:
+  - examples/simple_hash/target/simple_hash.json
+  - examples/range_bits/target/range_bits.json
+  - examples/merkle_verify/target/merkle_verify.json
+
+tasks: [gates, prove]
+
+backend: barretenberg
+backend_path: bb
+backend_args: ["-s", "ultra_honk"]
+
+iterations: 3
+warmup: 1
