@@ -1,0 +1,15 @@
+[[circuit]]
+name = "merkle"
+path = "examples/merkle_verify/target/merkle_verify.json"
+params = [8, 16, 32]
+
+[[circuit]]
+name = "poseidon"
+path = "examples/simple_hash/target/simple_hash.json"
+params = [4, 8, 12]
+
+[[circuit]]
+name = "evm-example"
+path = "examples/evm-verify"
+
+

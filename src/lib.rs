@@ -4,6 +4,9 @@ pub mod prove_cmd;
 pub mod verify_cmd;
 pub mod suite_cmd;
 pub mod compare_cmd;
+pub mod evm_verify_cmd;
+pub mod bench;
+pub mod logging;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -111,6 +114,17 @@ pub struct VerifyReport {
     pub backend: BackendInfo,
     pub system: Option<SystemInfo>,
     pub iterations: Option<IterationStats>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvmVerifyReport {
+    #[serde(flatten)]
+    pub meta: CommonMeta,
+    pub gas_used: u128,
+    pub calldata_bytes: Option<u64>,
+    pub est_latency_ms: Option<u64>,
+    pub backend: BackendInfo,
+    pub system: Option<SystemInfo>,
 }
 
 // Shared helpers

@@ -20,3 +20,8 @@ if [[ -n "$base_json" && -n "$scheme_json" ]]; then
   echo "$scheme_json" > /tmp/scheme.json
   noir-bench compare --baseline /tmp/base.json --contender /tmp/scheme.json --fail_on_regress 10 || true
 fi
+
+
+
+
+

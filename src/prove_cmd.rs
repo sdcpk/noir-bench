@@ -39,7 +39,7 @@ impl BarretenbergProverProvider {
         timeout: Duration,
     ) -> BenchResult<(std::process::ExitStatus, Option<u64>)> {
         #[cfg(feature = "mem")]
-        use sysinfo::{PidExt, ProcessRefreshKind, RefreshKind, System, SystemExt};
+        use sysinfo::{ProcessRefreshKind, RefreshKind, System};
 
         let start = Instant::now();
         let mut child = cmd.spawn().map_err(|e| BenchError::Message(e.to_string()))?;

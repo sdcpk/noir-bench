@@ -1,0 +1,559 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 26beb87..bdef14f 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -1987,7 +1987,7 @@ dependencies = [
+  "serde",
+  "serde_json",
+  "thiserror 1.0.69",
+- "toml",
++ "toml 0.7.8",
+  "tracing-subscriber",
+ ]
+ 
+@@ -2013,16 +2013,15 @@ dependencies = [
+  "noirc_errors",
+  "noirc_evaluator",
+  "noirc_frontend",
+- "rustc_version",
+  "serde",
+  "serde_json",
+- "serde_yaml",
+  "sha256",
+  "shlex",
+  "sysinfo",
+  "tempfile",
+  "thiserror 1.0.69",
+  "time",
++ "toml 0.8.23",
+  "tracing",
+  "tracing-subscriber",
+ ]
+@@ -2069,7 +2068,7 @@ dependencies = [
+  "serde",
+  "serde_json",
+  "thiserror 1.0.69",
+- "toml",
++ "toml 0.7.8",
+ ]
+ 
+ [[package]]
+@@ -2959,15 +2958,6 @@ version = "2.1.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "357703d41365b4b27c590e3ed91eabb1b663f07c4c084095e60cbed4362dff0d"
+ 
+-[[package]]
+-name = "rustc_version"
+-version = "0.4.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "cfcb3a22ef46e85b45de6ee7e79d063319ebb6594faafcf1c225ea92ab6e9b92"
+-dependencies = [
+- "semver",
+-]
+-
+ [[package]]
+ name = "rustix"
+ version = "1.1.2"
+@@ -3199,12 +3189,6 @@ dependencies = [
+  "libc",
+ ]
+ 
+-[[package]]
+-name = "semver"
+-version = "1.0.27"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "d767eb0aabc880b29956c35734170f26ed551a859dbd361d140cdbeca61ab1e2"
+-
+ [[package]]
+ name = "serde"
+ version = "1.0.225"
+@@ -3298,19 +3282,6 @@ dependencies = [
+  "syn 2.0.106",
+ ]
+ 
+-[[package]]
+-name = "serde_yaml"
+-version = "0.9.34+deprecated"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47"
+-dependencies = [
+- "indexmap 2.11.4",
+- "itoa",
+- "ryu",
+- "serde",
+- "unsafe-libyaml",
+-]
+-
+ [[package]]
+ name = "sha2"
+ version = "0.10.9"
+@@ -3702,6 +3673,18 @@ dependencies = [
+  "toml_edit 0.19.15",
+ ]
+ 
++[[package]]
++name = "toml"
++version = "0.8.23"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "dc1beb996b9d83529a9e75c17a1686767d148d70663143c7854d8b4a09ced362"
++dependencies = [
++ "serde",
++ "serde_spanned",
++ "toml_datetime 0.6.11",
++ "toml_edit 0.22.27",
++]
++
+ [[package]]
+ name = "toml_datetime"
+ version = "0.6.11"
+@@ -3733,6 +3716,20 @@ dependencies = [
+  "winnow 0.5.40",
+ ]
+ 
++[[package]]
++name = "toml_edit"
++version = "0.22.27"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "41fe8c660ae4257887cf66394862d21dbca4a6ddd26f04a3560410406a2f819a"
++dependencies = [
++ "indexmap 2.11.4",
++ "serde",
++ "serde_spanned",
++ "toml_datetime 0.6.11",
++ "toml_write",
++ "winnow 0.7.13",
++]
++
+ [[package]]
+ name = "toml_edit"
+ version = "0.23.6"
+@@ -3754,6 +3751,12 @@ dependencies = [
+  "winnow 0.7.13",
+ ]
+ 
++[[package]]
++name = "toml_write"
++version = "0.1.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
++
+ [[package]]
+ name = "tower"
+ version = "0.5.2"
+@@ -3900,12 +3903,6 @@ version = "0.2.6"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
+ 
+-[[package]]
+-name = "unsafe-libyaml"
+-version = "0.2.11"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
+-
+ [[package]]
+ name = "untrusted"
+ version = "0.9.0"
+diff --git a/Cargo.toml b/Cargo.toml
+index 049c751..03f6923 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -33,6 +33,8 @@ bn254_blackbox_solver = { git = "https://github.com/noir-lang/noir", tag = "v1.0
+ clap = { version = "4.5", features = ["derive"] }
+ serde = { version = "1.0", features = ["derive"] }
+ serde_json = "1.0"
++toml = "0.8"
++csv = "1.3"
+ thiserror = "1.0"
+ tracing = "0.1.40"
+ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+@@ -41,8 +43,6 @@ anyhow = "1.0"
+ im = "15.1"
+ tempfile = "3.10"
+ shlex = "1.3.0"
+-serde_yaml = "0.9"
+-csv = "1.3"
+ sha256 = "1.5"
+ 
+ # Flamegraph
+@@ -53,7 +53,6 @@ time = { version = "0.3", features = ["formatting"] }
+ 
+ # System info (always on); memory sampling guarded by cfg(feature = "mem")
+ sysinfo = { version = "0.30" }
+-rustc_version = "0.4"
+ 
+ [features]
+ mem = []
+diff --git a/examples/merkle_verify/Nargo.toml b/examples/merkle_verify/Nargo.toml
+index 1b5d3f6..1522d5d 100644
+--- a/examples/merkle_verify/Nargo.toml
++++ b/examples/merkle_verify/Nargo.toml
+@@ -3,3 +3,8 @@ name = "merkle_verify"
+ version = "0.1.0"
+ type = "bin"
+ authors = ["noir-bench"]
++
++
++
++
++
+diff --git a/examples/merkle_verify/Prover.toml b/examples/merkle_verify/Prover.toml
+index f5053cd..e61d1b7 100644
+--- a/examples/merkle_verify/Prover.toml
++++ b/examples/merkle_verify/Prover.toml
+@@ -1,2 +1,7 @@
+ leaf = 1
+ root = 1
++
++
++
++
++
+diff --git a/examples/merkle_verify/main.nr b/examples/merkle_verify/main.nr
+index 17cf952..4ddaa3c 100644
+--- a/examples/merkle_verify/main.nr
++++ b/examples/merkle_verify/main.nr
+@@ -2,3 +2,8 @@ fn main(leaf: Field, root: Field) {
+ 	// Placeholder: assert equality to simulate merkle check
+ 	assert(leaf == root);
+ }
++
++
++
++
++
+diff --git a/examples/merkle_verify/src/main.nr b/examples/merkle_verify/src/main.nr
+index 8b7492d..a91034b 100644
+--- a/examples/merkle_verify/src/main.nr
++++ b/examples/merkle_verify/src/main.nr
+@@ -1,3 +1,8 @@
+ fn main(leaf: Field, root: Field) {
+ 	assert(leaf == root);
+ }
++
++
++
++
++
+diff --git a/examples/range_bits/Nargo.toml b/examples/range_bits/Nargo.toml
+index 9df6d7d..2dd0ddd 100644
+--- a/examples/range_bits/Nargo.toml
++++ b/examples/range_bits/Nargo.toml
+@@ -3,3 +3,8 @@ name = "range_bits"
+ version = "0.1.0"
+ type = "bin"
+ authors = ["noir-bench"]
++
++
++
++
++
+diff --git a/examples/range_bits/Prover.toml b/examples/range_bits/Prover.toml
+index ff6a68a..651ab33 100644
+--- a/examples/range_bits/Prover.toml
++++ b/examples/range_bits/Prover.toml
+@@ -1 +1,6 @@
+ x = 65535
++
++
++
++
++
+diff --git a/examples/range_bits/main.nr b/examples/range_bits/main.nr
+index 3ea1539..2178399 100644
+--- a/examples/range_bits/main.nr
++++ b/examples/range_bits/main.nr
+@@ -3,3 +3,8 @@ fn main(x: Field) {
+ 	let b0 = constrain_to_bits(x, 16);
+ 	assert(b0[0] + b0[1] + b0[2] + b0[3] >= 0);
+ }
++
++
++
++
++
+diff --git a/examples/run_examples.sh b/examples/run_examples.sh
+index ffde77b..9fe858d 100755
+--- a/examples/run_examples.sh
++++ b/examples/run_examples.sh
+@@ -20,3 +20,8 @@ if [[ -n "$base_json" && -n "$scheme_json" ]]; then
+   echo "$scheme_json" > /tmp/scheme.json
+   noir-bench compare --baseline /tmp/base.json --contender /tmp/scheme.json --fail_on_regress 10 || true
+ fi
++
++
++
++
++
+diff --git a/examples/simple_hash/Nargo.toml b/examples/simple_hash/Nargo.toml
+index 8d80e87..8bde004 100644
+--- a/examples/simple_hash/Nargo.toml
++++ b/examples/simple_hash/Nargo.toml
+@@ -3,3 +3,8 @@ name = "simple_hash"
+ version = "0.1.0"
+ type = "bin"
+ authors = ["noir-bench"]
++
++
++
++
++
+diff --git a/examples/simple_hash/Prover.toml b/examples/simple_hash/Prover.toml
+index 1a2dba4..5faf5a1 100644
+--- a/examples/simple_hash/Prover.toml
++++ b/examples/simple_hash/Prover.toml
+@@ -1 +1,6 @@
+ x = [1, 2, 3, 4]
++
++
++
++
++
+diff --git a/examples/simple_hash/main.nr b/examples/simple_hash/main.nr
+index a8cb905..71baa94 100644
+--- a/examples/simple_hash/main.nr
++++ b/examples/simple_hash/main.nr
+@@ -9,3 +9,8 @@ fn poseidon_hash(xs: [Field; 4]) -> Field {
+ fn main(x: [Field; 4]) {
+ 	let _ = poseidon_hash(x);
+ }
++
++
++
++
++
+diff --git a/src/compare_cmd.rs b/src/compare_cmd.rs
+index d3eb44c..008bab0 100644
+--- a/src/compare_cmd.rs
++++ b/src/compare_cmd.rs
+@@ -36,3 +36,8 @@ pub fn run(baseline: PathBuf, contender: PathBuf, fail_on_regress_pct: Option<f6
+ }
+ 
+ 
++
++
++
++
++
+diff --git a/src/lib.rs b/src/lib.rs
+index 99cf737..52a6651 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -4,6 +4,9 @@ pub mod prove_cmd;
+ pub mod verify_cmd;
+ pub mod suite_cmd;
+ pub mod compare_cmd;
++pub mod evm_verify_cmd;
++pub mod bench;
++pub mod logging;
+ 
+ use serde::{Deserialize, Serialize};
+ use std::path::PathBuf;
+@@ -113,6 +116,17 @@ pub struct VerifyReport {
+     pub iterations: Option<IterationStats>,
+ }
+ 
++#[derive(Debug, Clone, Serialize, Deserialize)]
++pub struct EvmVerifyReport {
++    #[serde(flatten)]
++    pub meta: CommonMeta,
++    pub gas_used: u128,
++    pub calldata_bytes: Option<u64>,
++    pub est_latency_ms: Option<u64>,
++    pub backend: BackendInfo,
++    pub system: Option<SystemInfo>,
++}
++
+ // Shared helpers
+ pub fn collect_system_info() -> SystemInfo {
+     use sysinfo::System;
+diff --git a/src/main.rs b/src/main.rs
+index 9c2bfe7..df0acd3 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -3,7 +3,7 @@
+ use clap::{Parser, Subcommand};
+ use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
+ 
+-use noir_bench::{exec_cmd, gates_cmd, prove_cmd, verify_cmd, compare_cmd, suite_cmd};
++use noir_bench::{exec_cmd, gates_cmd, prove_cmd, verify_cmd, compare_cmd, suite_cmd, evm_verify_cmd, bench};
+ use serde_json::Value as JsonValue;
+ 
+ #[derive(Parser, Debug)]
+@@ -26,6 +26,11 @@ struct Cli {
+ 
+ #[derive(Subcommand, Debug)]
+ enum Commands {
++    /// Bench framework
++    Bench {
++        #[command(subcommand)]
++        sub: BenchCommands,
++    },
+     /// Benchmark unconstrained execution (Brillig)
+     Exec {
+         /// Path to program artifact (program.json)
+@@ -163,6 +168,98 @@ enum Commands {
+         #[arg(long)]
+         summary: Option<std::path::PathBuf>,
+     },
++
++    /// Run a Foundry/Anvil EVM verifier and capture gas usage
++    EvmVerify {
++        /// Path to Foundry project directory containing verifier + tests
++        #[arg(long, value_name = "foundry_dir")]
++        foundry_dir: std::path::PathBuf,
++        /// Optional Noir program artifact (program.json) to tag meta
++        #[arg(long)]
++        artifact: Option<std::path::PathBuf>,
++        /// Test name/pattern to match (e.g., testVerify)
++        #[arg(long, value_name = "pattern")]
++        r#match: Option<String>,
++        /// Override calldata size in bytes (if test does not log CALDATA_BYTES)
++        #[arg(long)]
++        calldata_bytes: Option<u64>,
++        /// Gas per second to estimate latency (default 1_250_000)
++        #[arg(long)]
++        gas_per_second: Option<u64>,
++        /// Path to forge binary (defaults to `forge` in PATH)
++        #[arg(long)]
++        forge_bin: Option<std::path::PathBuf>,
++        /// Write machine-readable JSON report to this file
++        #[arg(long)]
++        json: Option<std::path::PathBuf>,
++    },
++}
++
++#[derive(Subcommand, Debug)]
++enum BenchCommands {
++    /// List circuits from bench-config.toml
++    List {
++        /// Path to bench-config.toml (default: bench-config.toml)
++        #[arg(long)]
++        config: Option<std::path::PathBuf>,
++    },
++    /// Run compile->prove->verify for a circuit
++    Run {
++        /// Circuit name from config
++        #[arg(long)]
++        circuit: String,
++        /// Backend: bb|evm (default: bb)
++        #[arg(long)]
++        backend: Option<String>,
++        /// Params value to select (optional)
++        #[arg(long)]
++        params: Option<u64>,
++        /// Path to bench-config.toml
++        #[arg(long)]
++        config: Option<std::path::PathBuf>,
++        /// CSV output (default: out/bench.csv)
++        #[arg(long)]
++        csv: Option<std::path::PathBuf>,
++        /// JSONL output (default: out/bench.jsonl)
++        #[arg(long)]
++        jsonl: Option<std::path::PathBuf>,
++    },
++    /// Run across all circuits and params in config
++    RunAll {
++        /// Backend: bb|evm (default: bb)
++        #[arg(long)]
++        backend: Option<String>,
++        /// Path to bench-config.toml
++        #[arg(long)]
++        config: Option<std::path::PathBuf>,
++        /// CSV output (default: out/bench.csv)
++        #[arg(long)]
++        csv: Option<std::path::PathBuf>,
++        /// JSONL output (default: out/bench.jsonl)
++        #[arg(long)]
++        jsonl: Option<std::path::PathBuf>,
++    },
++    /// Export CSV from JSONL records
++    ExportCsv {
++        /// JSONL input (default: out/bench.jsonl)
++        #[arg(long)]
++        jsonl: Option<std::path::PathBuf>,
++        /// CSV output (default: out/bench.csv)
++        #[arg(long)]
++        csv: Option<std::path::PathBuf>,
++    },
++    /// Run EVM verification against a circuit's foundry project
++    EvmVerify {
++        /// Circuit name from config
++        #[arg(long)]
++        circuit: String,
++        /// Path to bench-config.toml
++        #[arg(long)]
++        config: Option<std::path::PathBuf>,
++        /// CSV output (default: out/bench.csv)
++        #[arg(long)]
++        csv: Option<std::path::PathBuf>,
++    },
+ }
+ 
+ fn init_tracing(verbose: bool) {
+@@ -198,6 +295,11 @@ fn main() {
+                 );
+             } else if v.get("verify_time_ms").is_some() {
+                 line = format!("kind,verify_time_ms,ok\nverify,{},{}\n", v["verify_time_ms"], v["ok"]);
++            } else if v.get("gas_used").is_some() {
++                line = format!(
++                    "kind,gas_used,calldata_bytes,est_latency_ms\nevm-verify,{},{},{}\n",
++                    v["gas_used"], v.get("calldata_bytes").unwrap_or(&JsonValue::Null), v.get("est_latency_ms").unwrap_or(&JsonValue::Null)
++                );
+             }
+             if !line.is_empty() { let _ = std::fs::write(csv_path, line.as_bytes()); }
+         }
+@@ -218,12 +320,27 @@ fn main() {
+             } else if v.get("verify_time_ms").is_some() {
+                 md_s.push_str("| kind | verify_ms | ok |\n|---|---:|:--:|\n");
+                 md_s.push_str(&format!("| verify | {} | {} |\n", v["verify_time_ms"], v["ok"]));
++            } else if v.get("gas_used").is_some() {
++                md_s.push_str("| kind | gas_used | calldata_bytes | est_latency_ms |\n|---|---:|---:|---:|\n");
++                md_s.push_str(&format!(
++                    "| evm-verify | {} | {} | {} |\n",
++                    v["gas_used"], v.get("calldata_bytes").unwrap_or(&JsonValue::Null), v.get("est_latency_ms").unwrap_or(&JsonValue::Null)
++                ));
+             }
+             if !md_s.is_empty() { let _ = std::fs::write(md_path, md_s.as_bytes()); }
+         }
+     }
+ 
+     let result = match cli.command {
++        Commands::Bench { sub } => {
++            match sub {
++                BenchCommands::List { config } => bench::bench_cmd::list(config),
++                BenchCommands::Run { circuit, backend, params, config, csv, jsonl } => bench::bench_cmd::run(circuit, backend, params, config, csv, jsonl),
++                BenchCommands::RunAll { backend, config, csv, jsonl } => bench::bench_cmd::run_all(backend, config, csv, jsonl),
++                BenchCommands::ExportCsv { jsonl, csv } => bench::bench_cmd::export_csv(jsonl, csv),
++                BenchCommands::EvmVerify { circuit, config, csv } => bench::bench_cmd::evm_verify(circuit, config, csv),
++            }
++        }
+         Commands::Exec { artifact, prover_toml, output, json, flamegraph, iterations, warmup } => {
+             let r = exec_cmd::run(artifact.clone(), prover_toml.clone(), output.clone(), json.clone(), flamegraph, Some(iterations), Some(warmup));
+             if let (Ok(_), Some(j)) = (&r, &json) {
+@@ -258,6 +375,13 @@ fn main() {
+         Commands::Suite { config, jsonl, summary } => {
+             suite_cmd::run(config, jsonl, summary)
+         }
++        Commands::EvmVerify { foundry_dir, artifact, r#match, calldata_bytes, gas_per_second, forge_bin, json } => {
++            let r = evm_verify_cmd::run(foundry_dir, artifact, r#match, calldata_bytes, gas_per_second, forge_bin, json.clone());
++            if let (Ok(_), Some(j)) = (&r, &json) {
++                write_exports(j, &cli.csv, &cli.md);
++            }
++            r
++        }
+     };
+ 
+     if let Err(e) = result {
+diff --git a/src/prove_cmd.rs b/src/prove_cmd.rs
+index 0dfd1ad..d7097e1 100644
+--- a/src/prove_cmd.rs
++++ b/src/prove_cmd.rs
+@@ -39,7 +39,7 @@ impl BarretenbergProverProvider {
+         timeout: Duration,
+     ) -> BenchResult<(std::process::ExitStatus, Option<u64>)> {
+         #[cfg(feature = "mem")]
+-        use sysinfo::{PidExt, ProcessRefreshKind, RefreshKind, System, SystemExt};
++        use sysinfo::{ProcessRefreshKind, RefreshKind, System};
+ 
+         let start = Instant::now();
+         let mut child = cmd.spawn().map_err(|e| BenchError::Message(e.to_string()))?;

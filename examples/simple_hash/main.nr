@@ -9,3 +9,8 @@ fn poseidon_hash(xs: [Field; 4]) -> Field {
 fn main(x: [Field; 4]) {
 	let _ = poseidon_hash(x);
 }
+
+
+
+
+
