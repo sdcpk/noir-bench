@@ -1,9 +1,9 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
-use noirc_driver::{compile_main, file_manager_with_stdlib, prepare_crate, CompileOptions};
-use noirc_frontend::hir::Context;
 use nargo::parse_all;
+use noirc_driver::{CompileOptions, compile_main, file_manager_with_stdlib, prepare_crate};
+use noirc_frontend::hir::Context;
 use tempfile::tempdir;
 
 #[test]
@@ -12,11 +12,17 @@ fn gates_with_fake_backend() {
     let root = std::path::Path::new("");
     let file_name = std::path::Path::new("main.nr");
     let mut fm = file_manager_with_stdlib(root);
-    fm.add_file_with_source(file_name, r#"fn main(x: Field) { assert(x == 1); }"#.to_string()).unwrap();
+    fm.add_file_with_source(
+        file_name,
+        r#"fn main(x: Field) { assert(x == 1); }"#.to_string(),
+    )
+    .unwrap();
     let parsed = parse_all(&fm);
     let mut cx = Context::new(fm, parsed);
     let crate_id = prepare_crate(&mut cx, file_name);
-    let opts = CompileOptions { ..Default::default() };
+    let opts = CompileOptions {
+        ..Default::default()
+    };
     let (compiled, _warnings) = compile_main(&mut cx, crate_id, &opts, None).expect("compile");
     let artifact: noirc_artifacts::program::ProgramArtifact = compiled.into();
 
@@ -48,4 +54,4 @@ JSON
         None,
     )
     .unwrap();
-} 
+}

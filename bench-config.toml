@@ -1,3 +1,16 @@
+# CI configuration for automated regression testing
+[ci]
+# Circuits to run in CI (subset of full benchmark suite for speed)
+circuits = ["poseidon", "merkle"]
+# Path to baseline JSONL file for comparison
+baseline_file = ".noir-bench-baseline.jsonl"
+# Regression threshold percentage (fail CI if exceeded)
+threshold_percent = 10.0
+# Number of iterations for CI runs (fewer than full benchmarks)
+iterations = 3
+# Number of warmup iterations
+warmup = 1
+
 [[circuit]]
 name = "merkle"
 path = "examples/merkle_verify/target/merkle_verify.json"

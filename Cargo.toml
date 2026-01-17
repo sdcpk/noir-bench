@@ -57,6 +57,7 @@ sysinfo = { version = "0.30" }
 
 [features]
 mem = []
+default = ["mem"]
 
 [dev-dependencies]
 # For tests

@@ -6,25 +6,36 @@ use noir_artifact_cli::fs::{artifact::read_program_from_file, inputs::read_input
 use noirc_artifacts::debug::DebugArtifact;
 use tracing::info;
 
-use crate::{BenchError, BenchResult, CommonMeta, ExecReport, collect_system_info, SystemInfo, IterationStats, compute_iteration_stats};
+use crate::{
+    BenchError, BenchResult, CommonMeta, ExecReport, IterationStats, SystemInfo,
+    collect_system_info, compute_iteration_stats,
+};
 
 #[cfg(feature = "mem")]
 fn capture_peak_mem() -> Option<u64> {
     use sysinfo::{MemoryRefreshKind, RefreshKind, System};
-    let mut sys = System::new_with_specifics(RefreshKind::new().with_memory(MemoryRefreshKind::new().with_ram()));
+    let mut sys = System::new_with_specifics(
+        RefreshKind::new().with_memory(MemoryRefreshKind::new().with_ram()),
+    );
     sys.refresh_memory();
     Some(sys.total_memory() - sys.free_memory())
 }
 
 #[cfg(not(feature = "mem"))]
-fn capture_peak_mem() -> Option<u64> { None }
+fn capture_peak_mem() -> Option<u64> {
+    None
+}
 
 fn now_string() -> String {
-    time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339).unwrap_or_else(|_| "".to_string())
+    time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_else(|_| "".to_string())
 }
 
 fn write_json<T: serde::Serialize>(path: &Path, value: &T) -> BenchResult<()> {
-    if let Some(dir) = path.parent() { std::fs::create_dir_all(dir).map_err(|e| BenchError::Message(e.to_string()))?; }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| BenchError::Message(e.to_string()))?;
+    }
     let json = serde_json::to_vec_pretty(value).map_err(|e| BenchError::Message(e.to_string()))?;
     std::fs::write(path, json).map_err(|e| BenchError::Message(e.to_string()))
 }
@@ -39,7 +50,8 @@ pub fn run(
     warmup: Option<usize>,
 ) -> BenchResult<()> {
     info!("loading artifact");
-    let mut program = read_program_from_file(&artifact).map_err(|e| BenchError::Message(e.to_string()))?;
+    let mut program =
+        read_program_from_file(&artifact).map_err(|e| BenchError::Message(e.to_string()))?;
 
     // Inputs
     let (inputs_map, _) = read_inputs_from_file(&prover_toml.with_extension("toml"), &program.abi)
@@ -51,17 +63,24 @@ pub fn run(
     let mut last_profiling = Vec::new();
     let mut times: Vec<u128> = Vec::new();
     for i in 0..(warmup_n + iter_n) {
-        let initial_witness = program.abi.encode(&inputs_map, None).map_err(|e| BenchError::Message(e.to_string()))?;
+        let initial_witness = program
+            .abi
+            .encode(&inputs_map, None)
+            .map_err(|e| BenchError::Message(e.to_string()))?;
         let start = Instant::now();
         let (_witness_stack, profiling_samples) = nargo::ops::execute_program_with_profiling(
             &program.bytecode,
             initial_witness,
             &Bn254BlackBoxSolver(false),
-            &mut nargo::foreign_calls::DefaultForeignCallBuilder::default().with_output(std::io::stdout()).build(),
+            &mut nargo::foreign_calls::DefaultForeignCallBuilder::default()
+                .with_output(std::io::stdout())
+                .build(),
         )
         .map_err(|e| BenchError::Message(format!("execution failed: {e}")))?;
         let dur = start.elapsed().as_millis();
-        if i >= warmup_n { times.push(dur); }
+        if i >= warmup_n {
+            times.push(dur);
+        }
         last_profiling = profiling_samples;
     }
     let duration_ms = *times.last().unwrap_or(&0);
@@ -71,7 +90,9 @@ pub fn run(
     let mut flamegraph_svg = None;
     if flamegraph {
         let Some(out_dir) = output_dir.as_ref() else {
-            return Err(BenchError::Message("--output is required when --flamegraph is set".to_string()));
+            return Err(BenchError::Message(
+                "--output is required when --flamegraph is set".to_string(),
+            ));
         };
         std::fs::create_dir_all(out_dir).map_err(|e| BenchError::Message(e.to_string()))?;
 
@@ -90,17 +111,27 @@ pub fn run(
                     let opcode = brillig_function_id
                         .and_then(|id| program.bytecode.unconstrained_functions.get(id.0 as usize))
                         .and_then(|func| {
-                            if let Some(OpcodeLocation::Brillig { brillig_index, .. }) = last_entry {
+                            if let Some(OpcodeLocation::Brillig { brillig_index, .. }) = last_entry
+                            {
                                 func.bytecode.get(*brillig_index)
-                            } else { None }
+                            } else {
+                                None
+                            }
                         })
                         .map(exec_samples::format_brillig_opcode);
-                    exec_samples::BrilligExecSample { opcode, call_stack, brillig_function_id }
+                    exec_samples::BrilligExecSample {
+                        opcode,
+                        call_stack,
+                        brillig_function_id,
+                    }
                 })
                 .collect()
         };
 
-        let artifact_name = artifact.file_name().and_then(|s| s.to_str()).unwrap_or("artifact");
+        let artifact_name = artifact
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("artifact");
         let svg_path = out_dir.join(format!("{}_brillig_trace.svg", "main"));
         flame::generate_flamegraph(
             samples,
@@ -109,7 +140,8 @@ pub fn run(
             artifact_name,
             "main",
             &svg_path,
-        ).map_err(|e| BenchError::Message(format!("flamegraph failed: {e}")))?;
+        )
+        .map_err(|e| BenchError::Message(format!("flamegraph failed: {e}")))?;
         flamegraph_svg = Some(svg_path);
     }
 
@@ -128,17 +160,31 @@ pub fn run(
     };
     let system: SystemInfo = collect_system_info();
     let iter_stats: Option<IterationStats> = Some(compute_iteration_stats(times, iter_n, warmup_n));
-    let report = ExecReport { meta, execution_time_ms: duration_ms, samples_count, peak_memory_bytes: capture_peak_mem(), flamegraph_svg, system: Some(system), iterations: iter_stats };
+    let report = ExecReport {
+        meta,
+        execution_time_ms: duration_ms,
+        samples_count,
+        peak_memory_bytes: capture_peak_mem(),
+        flamegraph_svg,
+        system: Some(system),
+        iterations: iter_stats,
+    };
 
     // Output JSON
-    if let Some(json_path) = json_out { write_json(&json_path, &report)?; }
+    if let Some(json_path) = json_out {
+        write_json(&json_path, &report)?;
+    }
 
     // Human summary
     println!(
         "exec: time={}ms samples={}{}",
         report.execution_time_ms,
         report.samples_count,
-        if report.flamegraph_svg.is_some() { " (flamegraph)" } else { "" }
+        if report.flamegraph_svg.is_some() {
+            " (flamegraph)"
+        } else {
+            ""
+        }
     );
 
     Ok(())
@@ -146,7 +192,7 @@ pub fn run(
 
 // Minimal internal helpers to avoid depending on profiler crate
 mod exec_samples {
-    use acvm::{FieldElement};
+    use acvm::FieldElement;
     use acvm::acir::brillig::Opcode as BrilligOpcode;
     use acvm::acir::circuit::{OpcodeLocation, brillig::BrilligFunctionId};
 
@@ -180,7 +226,8 @@ mod exec_samples {
             Op::Load { .. } => "brillig::load",
             Op::ForeignCall { .. } => "brillig::foreign_call",
             _ => "brillig::op",
-        }.to_string()
+        }
+        .to_string()
     }
 }
 
@@ -203,7 +250,8 @@ mod flame {
         function_name: &str,
         output_path: &Path,
     ) -> eyre::Result<()> {
-        let folded_lines = profiler_like::generate_folded_sorted_lines(samples, debug_symbols, files);
+        let folded_lines =
+            profiler_like::generate_folded_sorted_lines(samples, debug_symbols, files);
         let flamegraph_file = std::fs::File::create(output_path)?;
         let flamegraph_writer = BufWriter::new(flamegraph_file);
 
@@ -217,7 +265,11 @@ mod flame {
         options.count_name = "samples".to_string();
         options.text_truncate_direction = TextTruncateDirection::Right;
 
-        from_lines(&mut options, folded_lines.iter().map(|s| s.as_str()), flamegraph_writer)?;
+        from_lines(
+            &mut options,
+            folded_lines.iter().map(|s| s.as_str()),
+            flamegraph_writer,
+        )?;
         Ok(())
     }
 }
@@ -233,7 +285,10 @@ mod profiler_like {
     use super::exec_samples::BrilligExecSample;
 
     #[derive(Default)]
-    struct FoldedStackItem { total: usize, children: BTreeMap<String, FoldedStackItem> }
+    struct FoldedStackItem {
+        total: usize,
+        children: BTreeMap<String, FoldedStackItem>,
+    }
 
     pub fn generate_folded_sorted_lines<'files>(
         samples: Vec<BrilligExecSample>,
@@ -244,9 +299,16 @@ mod profiler_like {
         for s in samples {
             let mut labels: Vec<String> = Vec::new();
             for loc in s.call_stack.iter() {
-                labels.extend(find_callsite_labels(debug_symbols, loc, s.brillig_function_id, files));
+                labels.extend(find_callsite_labels(
+                    debug_symbols,
+                    loc,
+                    s.brillig_function_id,
+                    files,
+                ));
             }
-            if let Some(op) = s.opcode.as_ref() { labels.push(op.clone()); }
+            if let Some(op) = s.opcode.as_ref() {
+                labels.push(op.clone());
+            }
             add(&mut root, labels, 1);
         }
         to_lines(&root, im::Vector::new())
@@ -256,16 +318,25 @@ mod profiler_like {
         let mut map = root;
         for (i, l) in labels.iter().enumerate() {
             let entry = map.entry(l.clone()).or_default();
-            if i == labels.len() - 1 { entry.total += count; }
+            if i == labels.len() - 1 {
+                entry.total += count;
+            }
             map = &mut entry.children;
         }
     }
 
-    fn to_lines(root: &BTreeMap<String, FoldedStackItem>, parents: im::Vector<String>) -> Vec<String> {
+    fn to_lines(
+        root: &BTreeMap<String, FoldedStackItem>,
+        parents: im::Vector<String>,
+    ) -> Vec<String> {
         let mut out = Vec::new();
         for (label, item) in root.iter() {
             if item.total > 0 {
-                let frames: Vec<String> = parents.iter().cloned().chain(std::iter::once(label.clone())).collect();
+                let frames: Vec<String> = parents
+                    .iter()
+                    .cloned()
+                    .chain(std::iter::once(label.clone()))
+                    .collect();
                 out.push(format!("{} {}", frames.join(";"), item.total));
             }
             let mut ps = parents.clone();
@@ -292,7 +363,9 @@ mod profiler_like {
                 if let (Some(brillig_function_id), Some(brillig_location)) =
                     (brillig_function_id, opcode_location.to_brillig_location())
                 {
-                    if let Some(brillig_locations) = debug_symbols.brillig_locations.get(&brillig_function_id) {
+                    if let Some(brillig_locations) =
+                        debug_symbols.brillig_locations.get(&brillig_function_id)
+                    {
                         if let Some(call_stack) = brillig_locations.get(&brillig_location) {
                             return debug_symbols
                                 .location_tree
@@ -308,11 +381,15 @@ mod profiler_like {
         }
     }
 
-    fn location_to_label<'files>(location: Location, files: &'files impl Files<'files, FileId = fm::FileId>) -> String {
-        let filename = std::path::Path::new(&files.name(location.file).expect("file path").to_string())
-            .file_name()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or("invalid_path".to_string());
+    fn location_to_label<'files>(
+        location: Location,
+        files: &'files impl Files<'files, FileId = fm::FileId>,
+    ) -> String {
+        let filename =
+            std::path::Path::new(&files.name(location.file).expect("file path").to_string())
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or("invalid_path".to_string());
         let source = files.source(location.file).expect("file source");
         let code_slice: String = source
             .as_ref()
@@ -324,4 +401,4 @@ mod profiler_like {
         let (line, column) = line_and_column_from_span(source.as_ref(), &location.span);
         format!("{filename}:{line}:{column}::{code_slice}")
     }
-} 
+}

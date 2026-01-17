@@ -1,5 +1,3 @@
 pub mod backend;
-pub mod config;
 pub mod bench_cmd;
-
-
+pub mod config;

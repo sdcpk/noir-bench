@@ -33,18 +33,28 @@ pub fn load_bench_config(path: &Path) -> BenchResult<Vec<CircuitSpec>> {
         match c.params {
             Some(list) if !list.is_empty() => {
                 for p in list {
-                    specs.push(CircuitSpec { name: c.name.clone(), path: c.path.clone(), params: Some(p) });
+                    specs.push(CircuitSpec {
+                        name: c.name.clone(),
+                        path: c.path.clone(),
+                        params: Some(p),
+                    });
                 }
             }
             _ => {
-                specs.push(CircuitSpec { name: c.name, path: c.path, params: None });
+                specs.push(CircuitSpec {
+                    name: c.name,
+                    path: c.path,
+                    params: None,
+                });
             }
         }
     }
     Ok(specs)
 }
 
-pub fn list_circuits_in_config(path: &Path) -> BenchResult<Vec<(String, PathBuf, Option<Vec<u64>>)>> {
+pub fn list_circuits_in_config(
+    path: &Path,
+) -> BenchResult<Vec<(String, PathBuf, Option<Vec<u64>>)>> {
     let s = std::fs::read_to_string(path).map_err(|e| BenchError::Message(e.to_string()))?;
     let cfg: BenchConfig = toml::from_str(&s).map_err(|e| BenchError::Message(e.to_string()))?;
     Ok(cfg
@@ -53,5 +63,3 @@ pub fn list_circuits_in_config(path: &Path) -> BenchResult<Vec<(String, PathBuf,
         .map(|c| (c.name, c.path, c.params))
         .collect())
 }
-
-
