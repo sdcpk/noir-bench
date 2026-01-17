@@ -1,5 +1,5 @@
-use noirc_driver::{CompileOptions, compile_main, file_manager_with_stdlib, prepare_crate};
 use nargo::parse_all;
+use noirc_driver::{CompileOptions, compile_main, file_manager_with_stdlib, prepare_crate};
 use noirc_frontend::hir::Context;
 use tempfile::tempdir;
 
@@ -7,11 +7,17 @@ fn compile_program() -> noirc_driver::CompiledProgram {
     let root = std::path::Path::new("");
     let file_name = std::path::Path::new("main.nr");
     let mut fm = file_manager_with_stdlib(root);
-    fm.add_file_with_source(file_name, r#"fn main(x: Field) { assert(x == x); }"#.to_string()).unwrap();
+    fm.add_file_with_source(
+        file_name,
+        r#"fn main(x: Field) { assert(x == x); }"#.to_string(),
+    )
+    .unwrap();
     let parsed = parse_all(&fm);
     let mut cx = Context::new(fm, parsed);
     let crate_id = prepare_crate(&mut cx, file_name);
-    let opts = CompileOptions { ..Default::default() };
+    let opts = CompileOptions {
+        ..Default::default()
+    };
     let (compiled, _warnings) = compile_main(&mut cx, crate_id, &opts, None).expect("compile");
     compiled
 }
@@ -61,4 +67,4 @@ JSON
     let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(v["total_gates"], 100);
     assert_eq!(v["acir_opcodes"], 3);
-} 
+}

@@ -1,14 +1,46 @@
+pub mod backend;
+pub mod bench;
+pub mod ci_cmd;
+pub mod compare_cmd;
+pub mod core;
+pub mod engine;
+pub mod evm_verify_cmd;
 pub mod exec_cmd;
 pub mod gates_cmd;
-pub mod prove_cmd;
-pub mod verify_cmd;
-pub mod suite_cmd;
-pub mod compare_cmd;
-pub mod evm_verify_cmd;
-pub mod bench;
+pub mod history;
+pub mod history_cmd;
 pub mod logging;
+pub mod prove_cmd;
+pub mod report;
+pub mod storage;
+pub mod suite_cmd;
+pub mod verify_cmd;
+
+// Re-export core types for convenience
+pub use core::BackendInfo as CoreBackendInfo;
+pub use core::{BenchRecord, EnvironmentInfo, RunConfig, SCHEMA_VERSION, TimingStat};
+pub use storage::{CsvExporter, JsonlWriter};
+
+// Re-export backend types
+pub use backend::{Backend, Capabilities, GateInfo, ProveOutput, VerifyOutput};
+pub use backend::{BarretenbergBackend, BarretenbergConfig, MockBackend, MockConfig};
+
+// Re-export engine types
+pub use engine::{CompileArtifacts, MockToolchain, NargoToolchain, Toolchain, WitnessArtifact};
+pub use engine::{
+    FullBenchmarkResult, ProveInputs, full_benchmark, prove_only, prove_with_iterations,
+};
+
+// Re-export report types
+pub use report::{
+    CircuitRegression, MetricDelta, RegressionReport, RegressionStatus, render_markdown,
+};
+
+// Re-export history types
+pub use history::{RUN_INDEX_SCHEMA_VERSION, RunIndexMetricsV1, RunIndexRecordV1};
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use thiserror::Error;
 
@@ -80,6 +112,8 @@ pub struct ProveReport {
     pub backend_prove_time_ms: Option<u128>,
     pub peak_memory_bytes: Option<u64>,
     pub proof_size_bytes: Option<u64>,
+    pub proving_key_size_bytes: Option<u64>,
+    pub verification_key_size_bytes: Option<u64>,
     pub gate_count: Option<u64>,
     pub backend: BackendInfo,
     pub system: Option<SystemInfo>,
@@ -100,10 +134,13 @@ pub struct GatesReport {
     pub total_gates: usize,
     pub acir_opcodes: usize,
     pub per_opcode: Vec<GatesOpcodeBreakdown>,
+    // new structured fields
+    pub per_opcode_gates: Option<HashMap<String, u64>>,
+    pub subgroup_size: Option<u64>,
     pub per_opcode_percent: Option<Vec<(String, f64)>>,
     pub backend: BackendInfo,
     pub system: Option<SystemInfo>,
-} 
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VerifyReport {
@@ -137,24 +174,54 @@ pub fn collect_system_info() -> SystemInfo {
     let cpu_cores_physical = sys.physical_core_count();
     let total_ram_bytes = Some(sys.total_memory());
     let os = System::name();
-    SystemInfo { cpu_model, cpu_cores_logical, cpu_cores_physical, total_ram_bytes, os }
+    SystemInfo {
+        cpu_model,
+        cpu_cores_logical,
+        cpu_cores_physical,
+        total_ram_bytes,
+        os,
+    }
 }
 
-pub fn compute_iteration_stats(times_ms: Vec<u128>, iterations: usize, warmup: usize) -> IterationStats {
+pub fn compute_iteration_stats(
+    times_ms: Vec<u128>,
+    iterations: usize,
+    warmup: usize,
+) -> IterationStats {
     if times_ms.is_empty() {
-        return IterationStats { iterations, warmup, times_ms, avg_ms: None, min_ms: None, max_ms: None, stddev_ms: None };
+        return IterationStats {
+            iterations,
+            warmup,
+            times_ms,
+            avg_ms: None,
+            min_ms: None,
+            max_ms: None,
+            stddev_ms: None,
+        };
     }
     let len = times_ms.len() as f64;
     let sum: f64 = times_ms.iter().map(|v| *v as f64).sum();
     let avg = sum / len;
     let min = *times_ms.iter().min().unwrap();
     let max = *times_ms.iter().max().unwrap();
-    let var = times_ms.iter().map(|v| {
-        let d = *v as f64 - avg;
-        d * d
-    }).sum::<f64>() / len;
+    let var = times_ms
+        .iter()
+        .map(|v| {
+            let d = *v as f64 - avg;
+            d * d
+        })
+        .sum::<f64>()
+        / len;
     let stddev = var.sqrt();
-    IterationStats { iterations, warmup, times_ms, avg_ms: Some(avg), min_ms: Some(min), max_ms: Some(max), stddev_ms: Some(stddev) }
+    IterationStats {
+        iterations,
+        warmup,
+        times_ms,
+        avg_ms: Some(avg),
+        min_ms: Some(min),
+        max_ms: Some(max),
+        stddev_ms: Some(stddev),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

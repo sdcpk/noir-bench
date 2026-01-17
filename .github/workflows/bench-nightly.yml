@@ -1,0 +1,213 @@
+name: Nightly Benchmarks
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Every day at 2 AM UTC
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: 'Number of benchmark iterations'
+        required: false
+        default: '10'
+      circuits:
+        description: 'Circuits to benchmark (comma-separated, empty for all)'
+        required: false
+        default: ''
+
+env:
+  CARGO_TERM_COLOR: always
+  NOIR_VERSION: "1.0.0-beta.11"
+
+jobs:
+  bench-full:
+    name: Full Benchmark Suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          toolchain: stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-nightly-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-nightly-
+            ${{ runner.os }}-cargo-
+
+      - name: Install Noir toolchain
+        run: |
+          curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
+          echo "$HOME/.nargo/bin" >> $GITHUB_PATH
+          $HOME/.nargo/bin/noirup -v ${{ env.NOIR_VERSION }}
+
+      - name: Install Barretenberg
+        run: |
+          BB_VERSION="0.82.2"
+          curl -L "https://github.com/AztecProtocol/aztec-packages/releases/download/aztec-packages-v${BB_VERSION}/barretenberg-x86_64-linux-gnu.tar.gz" -o bb.tar.gz
+          tar -xzf bb.tar.gz
+          sudo mv bb /usr/local/bin/bb
+          chmod +x /usr/local/bin/bb
+          bb --version
+
+      - name: Build noir-bench (release)
+        run: cargo build --release
+
+      - name: Compile all example circuits
+        run: |
+          for dir in examples/*/; do
+            if [ -f "$dir/Nargo.toml" ]; then
+              echo "Compiling $dir..."
+              (cd "$dir" && nargo compile) || echo "Failed to compile $dir"
+            fi
+          done
+
+      - name: Download previous nightly baseline
+        id: download-baseline
+        uses: actions/download-artifact@v4
+        with:
+          name: noir-bench-nightly-baseline
+          path: .
+        continue-on-error: true
+
+      - name: Run full benchmark suite
+        id: bench
+        run: |
+          set +e
+          ITERATIONS="${{ github.event.inputs.iterations || '10' }}"
+          CIRCUITS="${{ github.event.inputs.circuits }}"
+
+          CIRCUIT_ARGS=""
+          if [ -n "$CIRCUITS" ]; then
+            CIRCUIT_ARGS="--circuits $CIRCUITS"
+          fi
+
+          echo "Running full benchmark suite..."
+          echo "  Iterations: $ITERATIONS"
+          echo "  Circuits: ${CIRCUITS:-all}"
+          echo ""
+
+          ./target/release/noir-bench ci \
+            --iterations "$ITERATIONS" \
+            --warmup 3 \
+            --threshold 5.0 \
+            --format markdown \
+            --output .noir-bench-nightly-results.jsonl \
+            $CIRCUIT_ARGS \
+            > bench-report.md 2>&1
+
+          EXIT_CODE=$?
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+
+          cat bench-report.md
+
+      - name: Generate detailed CSV report
+        run: |
+          ./target/release/noir-bench export-csv \
+            --input .noir-bench-nightly-results.jsonl \
+            --output bench-results.csv || true
+
+      - name: Upload nightly results
+        uses: actions/upload-artifact@v4
+        with:
+          name: noir-bench-nightly-${{ github.run_number }}
+          path: |
+            .noir-bench-nightly-results.jsonl
+            bench-results.csv
+            bench-report.md
+          retention-days: 90
+
+      - name: Update nightly baseline
+        uses: actions/upload-artifact@v4
+        with:
+          name: noir-bench-nightly-baseline
+          path: .noir-bench-nightly-results.jsonl
+          retention-days: 180
+          overwrite: true
+
+      - name: Create summary
+        run: |
+          echo "## Nightly Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Run:** #${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Date:** $(date -u +"%Y-%m-%d %H:%M UTC")" >> $GITHUB_STEP_SUMMARY
+          echo "**Noir Version:** ${{ env.NOIR_VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          cat bench-report.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Report regression (if any)
+        if: steps.bench.outputs.exit_code != '0' && steps.bench.outputs.exit_code != ''
+        run: |
+          echo "::warning::Nightly benchmark regression detected!"
+          # Don't fail nightly builds, just warn
+
+  # Optional: Run benchmarks on multiple platforms
+  bench-macos:
+    name: macOS Benchmarks
+    runs-on: macos-latest
+    timeout-minutes: 60
+    if: github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Install Noir toolchain
+        run: |
+          curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
+          echo "$HOME/.nargo/bin" >> $GITHUB_PATH
+          $HOME/.nargo/bin/noirup -v ${{ env.NOIR_VERSION }}
+
+      - name: Install Barretenberg
+        run: |
+          BB_VERSION="0.82.2"
+          if [[ "$(uname -m)" == "arm64" ]]; then
+            ARCH="aarch64"
+          else
+            ARCH="x86_64"
+          fi
+          curl -L "https://github.com/AztecProtocol/aztec-packages/releases/download/aztec-packages-v${BB_VERSION}/barretenberg-${ARCH}-apple-darwin.tar.gz" -o bb.tar.gz
+          tar -xzf bb.tar.gz
+          sudo mv bb /usr/local/bin/bb
+          chmod +x /usr/local/bin/bb
+
+      - name: Build noir-bench
+        run: cargo build --release
+
+      - name: Compile example circuits
+        run: |
+          for dir in examples/*/; do
+            if [ -f "$dir/Nargo.toml" ]; then
+              (cd "$dir" && nargo compile) || true
+            fi
+          done
+
+      - name: Run benchmarks
+        run: |
+          ./target/release/noir-bench ci \
+            --iterations 5 \
+            --format markdown \
+            > bench-report-macos.md 2>&1 || true
+          cat bench-report-macos.md
+
+      - name: Upload macOS results
+        uses: actions/upload-artifact@v4
+        with:
+          name: noir-bench-macos-${{ github.run_number }}
+          path: bench-report-macos.md
+          retention-days: 30
