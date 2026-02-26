@@ -56,7 +56,7 @@ jobs:
       - name: Install Barretenberg
         run: |
           BB_VERSION="0.82.2"
-          curl -L "https://github.com/AztecProtocol/aztec-packages/releases/download/aztec-packages-v${BB_VERSION}/barretenberg-x86_64-linux-gnu.tar.gz" -o bb.tar.gz
+          curl -L "https://github.com/AztecProtocol/aztec-packages/releases/download/v${BB_VERSION}/barretenberg-amd64-linux.tar.gz" -o bb.tar.gz
           tar -xzf bb.tar.gz
           sudo mv bb /usr/local/bin/bb
           chmod +x /usr/local/bin/bb
@@ -177,11 +177,11 @@ jobs:
         run: |
           BB_VERSION="0.82.2"
           if [[ "$(uname -m)" == "arm64" ]]; then
-            ARCH="aarch64"
+            ARCH="arm64"
           else
-            ARCH="x86_64"
+            ARCH="amd64"
           fi
-          curl -L "https://github.com/AztecProtocol/aztec-packages/releases/download/aztec-packages-v${BB_VERSION}/barretenberg-${ARCH}-apple-darwin.tar.gz" -o bb.tar.gz
+          curl -L "https://github.com/AztecProtocol/aztec-packages/releases/download/v${BB_VERSION}/barretenberg-${ARCH}-darwin.tar.gz" -o bb.tar.gz
           tar -xzf bb.tar.gz
           sudo mv bb /usr/local/bin/bb
           chmod +x /usr/local/bin/bb

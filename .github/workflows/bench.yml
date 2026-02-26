@@ -62,7 +62,7 @@ jobs:
         run: |
           # Download pre-built bb binary
           BB_VERSION="0.82.2"
-          curl -L "https://github.com/AztecProtocol/aztec-packages/releases/download/aztec-packages-v${BB_VERSION}/barretenberg-x86_64-linux-gnu.tar.gz" -o bb.tar.gz
+          curl -L "https://github.com/AztecProtocol/aztec-packages/releases/download/v${BB_VERSION}/barretenberg-amd64-linux.tar.gz" -o bb.tar.gz
           tar -xzf bb.tar.gz
           sudo mv bb /usr/local/bin/bb
           chmod +x /usr/local/bin/bb
