@@ -139,7 +139,7 @@ impl ProverProvider for BarretenbergProverProvider {
             read_program_from_file(artifact).map_err(|e| BenchError::Message(e.to_string()))?;
 
         // Generate witness from inputs using in-process execution
-        let compiled: noirc_driver::CompiledProgram = program.clone().into();
+        let compiled: noirc_artifacts::program::CompiledProgram = program.clone().into();
         let prover_file = inputs.map(|p| p.with_extension("toml"));
         let prover_file = prover_file
             .as_ref()
@@ -148,7 +148,7 @@ impl ProverProvider for BarretenbergProverProvider {
         let witness_start = Instant::now();
         let exec_res = execute_program_artifact(
             &compiled,
-            &Bn254BlackBoxSolver(false),
+            &Bn254BlackBoxSolver,
             &mut DefaultForeignCallBuilder::default().build(),
             prover_file,
         )
@@ -288,7 +288,7 @@ impl ProverProvider for GenericProverProvider {
         // Load artifact to get version and build witness using in-process, like Barretenberg flow
         let program =
             read_program_from_file(artifact).map_err(|e| BenchError::Message(e.to_string()))?;
-        let compiled: noirc_driver::CompiledProgram = program.clone().into();
+        let compiled: noirc_artifacts::program::CompiledProgram = program.clone().into();
         let prover_file = inputs.map(|p| p.with_extension("toml"));
         let prover_file = prover_file
             .as_ref()
@@ -296,7 +296,7 @@ impl ProverProvider for GenericProverProvider {
             .unwrap_or_else(|| Path::new("Prover.toml"));
         let exec_res = execute_program_artifact(
             &compiled,
-            &Bn254BlackBoxSolver(false),
+            &Bn254BlackBoxSolver,
             &mut DefaultForeignCallBuilder::default().build(),
             prover_file,
         )
@@ -386,7 +386,7 @@ pub fn prove_with_backend<B: Backend>(
     // Read artifact and generate witness
     let program =
         read_program_from_file(artifact).map_err(|e| BenchError::Message(e.to_string()))?;
-    let compiled: noirc_driver::CompiledProgram = program.clone().into();
+    let compiled: noirc_artifacts::program::CompiledProgram = program.clone().into();
     let prover_file = inputs.map(|p| p.with_extension("toml"));
     let prover_file = prover_file
         .as_ref()
@@ -396,7 +396,7 @@ pub fn prove_with_backend<B: Backend>(
     let witness_start = Instant::now();
     let exec_res = execute_program_artifact(
         &compiled,
-        &Bn254BlackBoxSolver(false),
+        &Bn254BlackBoxSolver,
         &mut DefaultForeignCallBuilder::default().build(),
         prover_file,
     )

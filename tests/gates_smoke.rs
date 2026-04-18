@@ -3,7 +3,7 @@ use noirc_driver::{CompileOptions, compile_main, file_manager_with_stdlib, prepa
 use noirc_frontend::hir::Context;
 use tempfile::tempdir;
 
-fn compile_program() -> noirc_driver::CompiledProgram {
+fn compile_program() -> noirc_artifacts::program::CompiledProgram {
     let root = std::path::Path::new("");
     let file_name = std::path::Path::new("main.nr");
     let mut fm = file_manager_with_stdlib(root);

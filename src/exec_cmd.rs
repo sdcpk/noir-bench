@@ -50,7 +50,7 @@ pub fn run(
     warmup: Option<usize>,
 ) -> BenchResult<()> {
     info!("loading artifact");
-    let mut program =
+    let program =
         read_program_from_file(&artifact).map_err(|e| BenchError::Message(e.to_string()))?;
 
     // Inputs
@@ -71,7 +71,7 @@ pub fn run(
         let (_witness_stack, profiling_samples) = nargo::ops::execute_program_with_profiling(
             &program.bytecode,
             initial_witness,
-            &Bn254BlackBoxSolver(false),
+            &Bn254BlackBoxSolver,
             &mut nargo::foreign_calls::DefaultForeignCallBuilder::default()
                 .with_output(std::io::stdout())
                 .build(),
@@ -213,19 +213,18 @@ mod exec_samples {
             Op::Not { .. } => "brillig::not",
             Op::Cast { .. } => "brillig::cast",
             Op::JumpIf { .. } => "brillig::jump_if",
-            Op::JumpIfNot { .. } => "brillig::jump_if_not",
             Op::Jump { .. } => "brillig::jump",
             Op::Mov { .. } => "brillig::mov",
-            Op::Cast { .. } => "brillig::cast",
-            Op::Not { .. } => "brillig::not",
-            Op::JumpIf { .. } => "brillig::jump_if",
-            Op::Jump { .. } => "brillig::jump",
-            Op::Mov { .. } => "brillig::mov",
-            Op::Return { .. } => "brillig::return",
+            Op::ConditionalMov { .. } => "brillig::conditional_mov",
+            Op::Call { .. } => "brillig::call",
+            Op::IndirectConst { .. } => "brillig::indirect_const",
+            Op::Return => "brillig::return",
             Op::Store { .. } => "brillig::store",
             Op::Load { .. } => "brillig::load",
             Op::ForeignCall { .. } => "brillig::foreign_call",
-            _ => "brillig::op",
+            Op::BlackBox(_) => "brillig::black_box",
+            Op::Trap { .. } => "brillig::trap",
+            Op::Stop { .. } => "brillig::stop",
         }
         .to_string()
     }
@@ -237,7 +236,7 @@ mod flame {
     use color_eyre::eyre;
     use fm::codespan_files::Files;
     use inferno::flamegraph::{Options, TextTruncateDirection, from_lines};
-    use noirc_errors::debug_info::DebugInfo;
+    use noirc_artifacts::debug::DebugInfo;
 
     use super::exec_samples::BrilligExecSample;
     use super::profiler_like;
@@ -280,7 +279,8 @@ mod profiler_like {
     use acvm::acir::circuit::{AcirOpcodeLocation, OpcodeLocation};
     use fm::codespan_files::Files;
     use noirc_errors::Location;
-    use noirc_errors::{debug_info::DebugInfo, reporter::line_and_column_from_span};
+    use noirc_artifacts::debug::DebugInfo;
+    use noirc_errors::reporter::line_and_column_from_span;
 
     use super::exec_samples::BrilligExecSample;
 

@@ -16,18 +16,18 @@ path = "src/main.rs"
 
 [dependencies]
 # Compiler/tooling crates
-nargo = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.11", package = "nargo" }
-noir_artifact_cli = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.11", package = "noir_artifact_cli" }
-noirc_artifacts = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.11", package = "noirc_artifacts" }
-noirc_abi = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.11", package = "noirc_abi" }
-noirc_evaluator = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.11", package = "noirc_evaluator" }
-noirc_driver = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.11", package = "noirc_driver" }
-fm = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.11", package = "fm" }
-noirc_errors = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.11", package = "noirc_errors" }
+nargo = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.20", package = "nargo" }
+noir_artifact_cli = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.20", package = "noir_artifact_cli" }
+noirc_artifacts = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.20", package = "noirc_artifacts" }
+noirc_abi = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.20", package = "noirc_abi" }
+noirc_evaluator = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.20", package = "noirc_evaluator" }
+noirc_driver = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.20", package = "noirc_driver" }
+fm = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.20", package = "fm" }
+noirc_errors = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.20", package = "noirc_errors" }
 # ACVM crates
-acvm = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.11", package = "acvm" }
-acir = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.11", package = "acir" }
-bn254_blackbox_solver = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.11", package = "bn254_blackbox_solver" }
+acvm = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.20", package = "acvm" }
+acir = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.20", package = "acir" }
+bn254_blackbox_solver = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.20", package = "bn254_blackbox_solver" }
 
 # CLI and utils
 clap = { version = "4.5", features = ["derive"] }
@@ -61,4 +61,4 @@ default = ["mem"]
 
 [dev-dependencies]
 # For tests
-noirc_frontend = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.11", package = "noirc_frontend" } 
+noirc_frontend = { git = "https://github.com/noir-lang/noir", tag = "v1.0.0-beta.20", package = "noirc_frontend" } 
