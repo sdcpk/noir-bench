@@ -86,6 +86,41 @@ fn now_string() -> String {
         .unwrap_or_default()
 }
 
+fn sort_ci_circuit_names(mut names: Vec<String>) -> Vec<String> {
+    names.sort();
+    names.dedup();
+    names
+}
+
+fn expand_ci_targets(
+    circuits: &[(String, PathBuf, Option<Vec<u64>>)],
+    ci_circuits: &[String],
+) -> Vec<(String, PathBuf, Option<u64>)> {
+    let mut filtered: Vec<_> = circuits
+        .iter()
+        .filter(|(name, _, _)| ci_circuits.is_empty() || ci_circuits.contains(name))
+        .collect();
+
+    filtered.sort_by(|(name_a, path_a, _), (name_b, path_b, _)| {
+        name_a.cmp(name_b).then_with(|| path_a.cmp(path_b))
+    });
+
+    let mut targets = Vec::new();
+    for (name, path, params_list) in filtered {
+        let mut param_values: Vec<Option<u64>> = match params_list {
+            Some(list) if !list.is_empty() => list.iter().copied().map(Some).collect(),
+            _ => vec![None],
+        };
+        param_values.sort();
+
+        for params in param_values {
+            targets.push((name.clone(), path.clone(), params));
+        }
+    }
+
+    targets
+}
+
 /// Load CI config from bench-config.toml
 fn load_ci_config(
     path: &PathBuf,
@@ -135,106 +170,94 @@ fn run_ci_benchmarks(
     let mut results = Vec::new();
     let timestamp = now_string();
 
-    // Filter circuits to CI subset
-    let filtered: Vec<_> = circuits
-        .iter()
-        .filter(|(name, _, _)| ci_circuits.is_empty() || ci_circuits.contains(name))
-        .collect();
+    // Expand and sort targets deterministically (circuit, path, params)
+    let targets = expand_ci_targets(circuits, ci_circuits);
 
-    if filtered.is_empty() {
+    if targets.is_empty() {
         eprintln!("Warning: No matching circuits found for CI run");
         return Ok(results);
     }
 
-    for (name, path, params_list) in filtered {
-        // Expand params or run once with no params
-        let param_values: Vec<Option<u64>> = match params_list {
-            Some(list) if !list.is_empty() => list.iter().map(|p| Some(*p)).collect(),
-            _ => vec![None],
+    for (name, path, params) in targets {
+        eprintln!("Running CI benchmark: {} (params={:?})", name, params);
+
+        // Find Prover.toml
+        let prover_toml = find_prover_toml(&path);
+
+        // Build workflow inputs
+        let mut inputs =
+            ProveInputs::new(&path, &name).with_timeout(Duration::from_secs(24 * 60 * 60));
+        if let Some(pt) = prover_toml {
+            inputs = inputs.with_prover_toml(pt);
+        }
+
+        // Run full benchmark using engine workflow
+        let bench_result = match full_benchmark(&toolchain, &backend, &inputs, warmup, iterations) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("  Benchmark failed: {e}");
+                results.push(CiCircuitResult {
+                    circuit_name: name.clone(),
+                    params,
+                    prove_ms: 0.0,
+                    gates: None,
+                    proof_size_bytes: None,
+                    status: "failed".to_string(),
+                });
+                continue;
+            }
         };
 
-        for params in param_values {
-            eprintln!("Running CI benchmark: {} (params={:?})", name, params);
+        // Extract metrics from BenchRecord
+        let prove_stats = bench_result.record.prove_stats.as_ref();
+        let avg_prove_ms = prove_stats.map(|s| s.mean_ms).unwrap_or(0.0);
+        let gates = bench_result.constraints;
+        let proof_size = bench_result.record.proof_size_bytes;
+        let status = if bench_result.verify_success {
+            "ok"
+        } else {
+            "verify_failed"
+        };
 
-            // Find Prover.toml
-            let prover_toml = find_prover_toml(path);
+        // Write JSONL record (compatible with BenchRecord schema)
+        let record = json!({
+            "schema_version": 1,
+            "record_id": format!("ci-{}-{}", name, timestamp.replace([':', '-', 'T', 'Z'], "")),
+            "timestamp": timestamp,
+            "circuit_name": name,
+            "env": { "os": std::env::consts::OS },
+            "backend": { "name": "barretenberg" },
+            "config": {
+                "warmup_iterations": warmup,
+                "measured_iterations": iterations
+            },
+            "prove_stats": {
+                "iterations": prove_stats.map(|s| s.iterations).unwrap_or(0),
+                "mean_ms": avg_prove_ms,
+                "min_ms": prove_stats.map(|s| s.min_ms).unwrap_or(0.0),
+                "max_ms": prove_stats.map(|s| s.max_ms).unwrap_or(0.0)
+            },
+            "total_gates": gates,
+            "acir_opcodes": bench_result.acir_opcodes,
+            "proof_size_bytes": proof_size,
+            "peak_rss_mb": bench_result.record.peak_rss_mb
+        });
+        writeln!(jsonl, "{}", serde_json::to_string(&record).unwrap())
+            .map_err(|e| BenchError::Message(format!("failed to write record: {e}")))?;
 
-            // Build workflow inputs
-            let mut inputs =
-                ProveInputs::new(path, name).with_timeout(Duration::from_secs(24 * 60 * 60));
-            if let Some(pt) = prover_toml {
-                inputs = inputs.with_prover_toml(pt);
-            }
+        results.push(CiCircuitResult {
+            circuit_name: name.clone(),
+            params,
+            prove_ms: avg_prove_ms,
+            gates,
+            proof_size_bytes: proof_size,
+            status: status.to_string(),
+        });
 
-            // Run full benchmark using engine workflow
-            let bench_result =
-                match full_benchmark(&toolchain, &backend, &inputs, warmup, iterations) {
-                    Ok(r) => r,
-                    Err(e) => {
-                        eprintln!("  Benchmark failed: {e}");
-                        results.push(CiCircuitResult {
-                            circuit_name: name.clone(),
-                            params,
-                            prove_ms: 0.0,
-                            gates: None,
-                            proof_size_bytes: None,
-                            status: "failed".to_string(),
-                        });
-                        continue;
-                    }
-                };
-
-            // Extract metrics from BenchRecord
-            let prove_stats = bench_result.record.prove_stats.as_ref();
-            let avg_prove_ms = prove_stats.map(|s| s.mean_ms).unwrap_or(0.0);
-            let gates = bench_result.constraints;
-            let proof_size = bench_result.record.proof_size_bytes;
-            let status = if bench_result.verify_success {
-                "ok"
-            } else {
-                "verify_failed"
-            };
-
-            // Write JSONL record (compatible with BenchRecord schema)
-            let record = json!({
-                "schema_version": 1,
-                "record_id": format!("ci-{}-{}", name, timestamp.replace([':', '-', 'T', 'Z'], "")),
-                "timestamp": timestamp,
-                "circuit_name": name,
-                "env": { "os": std::env::consts::OS },
-                "backend": { "name": "barretenberg" },
-                "config": {
-                    "warmup_iterations": warmup,
-                    "measured_iterations": iterations
-                },
-                "prove_stats": {
-                    "iterations": prove_stats.map(|s| s.iterations).unwrap_or(0),
-                    "mean_ms": avg_prove_ms,
-                    "min_ms": prove_stats.map(|s| s.min_ms).unwrap_or(0.0),
-                    "max_ms": prove_stats.map(|s| s.max_ms).unwrap_or(0.0)
-                },
-                "total_gates": gates,
-                "acir_opcodes": bench_result.acir_opcodes,
-                "proof_size_bytes": proof_size,
-                "peak_rss_mb": bench_result.record.peak_rss_mb
-            });
-            writeln!(jsonl, "{}", serde_json::to_string(&record).unwrap())
-                .map_err(|e| BenchError::Message(format!("failed to write record: {e}")))?;
-
-            results.push(CiCircuitResult {
-                circuit_name: name.clone(),
-                params,
-                prove_ms: avg_prove_ms,
-                gates,
-                proof_size_bytes: proof_size,
-                status: status.to_string(),
-            });
-
-            eprintln!(
-                "  {} prove_ms={:.1} gates={:?} status={}",
-                name, avg_prove_ms, gates, status
-            );
-        }
+        eprintln!(
+            "  {} prove_ms={:.1} gates={:?} status={}",
+            name, avg_prove_ms, gates, status
+        );
     }
 
     Ok(results)
@@ -257,6 +280,12 @@ fn find_prover_toml(path: &PathBuf) -> Option<PathBuf> {
 /// Format CI results as markdown
 fn format_markdown(result: &CiRunResult) -> String {
     let mut out = String::new();
+    let mut sorted_circuits = result.circuits.clone();
+    sorted_circuits.sort_by(|a, b| {
+        a.circuit_name
+            .cmp(&b.circuit_name)
+            .then_with(|| a.params.cmp(&b.params))
+    });
 
     out.push_str("## 🚀 noir-bench CI Report\n\n");
     out.push_str(&format!("**Timestamp:** {}\n\n", result.timestamp));
@@ -266,7 +295,7 @@ fn format_markdown(result: &CiRunResult) -> String {
     out.push_str("| Circuit | Params | Prove (ms) | Gates | Proof Size | Status |\n");
     out.push_str("|---------|--------|------------|-------|------------|--------|\n");
 
-    for c in &result.circuits {
+    for c in &sorted_circuits {
         let params_str = c
             .params
             .map(|p| p.to_string())
@@ -299,6 +328,9 @@ fn format_markdown(result: &CiRunResult) -> String {
 
     // Comparison results if available
     if let Some(comparison) = &result.comparison {
+        let mut comparison_circuits = comparison.circuits.clone();
+        comparison_circuits.sort_by(|a, b| a.circuit_name.cmp(&b.circuit_name));
+
         out.push_str("\n### Regression Analysis\n\n");
         out.push_str(&format!(
             "**Baseline:** `{}` | **Target:** current | **Threshold:** {:.1}%\n\n",
@@ -308,8 +340,11 @@ fn format_markdown(result: &CiRunResult) -> String {
         out.push_str("| Circuit | Metric | Baseline | Current | Δ | Status |\n");
         out.push_str("|---------|--------|----------|---------|---|--------|\n");
 
-        for circuit in &comparison.circuits {
-            for (i, m) in circuit.metrics.iter().enumerate() {
+        for circuit in &comparison_circuits {
+            let mut metrics = circuit.metrics.clone();
+            metrics.sort_by(|a, b| a.metric.cmp(&b.metric));
+
+            for (i, m) in metrics.iter().enumerate() {
                 let circuit_col = if i == 0 { &circuit.circuit_name } else { "" };
                 let delta_str = if m.delta == 0.0 {
                     "0".to_string()
@@ -382,15 +417,17 @@ pub fn run(
     };
 
     // Determine which circuits to run
-    let ci_circuits: Vec<String> = circuits
-        .or_else(|| {
-            if ci_config.circuits.is_empty() {
-                None
-            } else {
-                Some(ci_config.circuits.clone())
-            }
-        })
-        .unwrap_or_default();
+    let ci_circuits: Vec<String> = sort_ci_circuit_names(
+        circuits
+            .or_else(|| {
+                if ci_config.circuits.is_empty() {
+                    None
+                } else {
+                    Some(ci_config.circuits.clone())
+                }
+            })
+            .unwrap_or_default(),
+    );
 
     // Determine baseline file
     let baseline_path = baseline_file
@@ -430,8 +467,13 @@ pub fn run(
     eprintln!("");
 
     // Run benchmarks
-    let circuit_results =
+    let mut circuit_results =
         run_ci_benchmarks(&all_circuits, &ci_circuits, iter_n, warmup_n, &output_path)?;
+    circuit_results.sort_by(|a, b| {
+        a.circuit_name
+            .cmp(&b.circuit_name)
+            .then_with(|| a.params.cmp(&b.params))
+    });
 
     // Compare against baseline if it exists
     let comparison = if baseline_path.exists() {
@@ -517,8 +559,14 @@ pub fn run(
         _ => {
             // Text format
             let mut s = String::new();
+            let mut sorted_circuits = result.circuits.clone();
+            sorted_circuits.sort_by(|a, b| {
+                a.circuit_name
+                    .cmp(&b.circuit_name)
+                    .then_with(|| a.params.cmp(&b.params))
+            });
             s.push_str(&format!("CI Run: {}\n", result.timestamp));
-            for c in &result.circuits {
+            for c in &sorted_circuits {
                 s.push_str(&format!(
                     "  {}: prove_ms={:.1} gates={:?} status={}\n",
                     c.circuit_name, c.prove_ms, c.gates, c.status
@@ -537,4 +585,128 @@ pub fn run(
     println!("{}", output_str);
 
     Ok(exit_code)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::compare_cmd::{CircuitComparison, CompareStatus, MetricComparison};
+
+    #[test]
+    fn test_expand_ci_targets_is_deterministic() {
+        let circuits = vec![
+            (
+                "zeta".to_string(),
+                PathBuf::from("examples/zeta/target/zeta.json"),
+                Some(vec![32, 16, 24]),
+            ),
+            (
+                "alpha".to_string(),
+                PathBuf::from("examples/alpha/target/alpha.json"),
+                Some(vec![4, 2]),
+            ),
+            (
+                "beta".to_string(),
+                PathBuf::from("examples/beta/target/beta.json"),
+                None,
+            ),
+        ];
+
+        let ci_subset = vec!["zeta".to_string(), "alpha".to_string(), "zeta".to_string()];
+        let targets = expand_ci_targets(&circuits, &ci_subset);
+        let observed: Vec<(String, Option<u64>)> =
+            targets.into_iter().map(|(name, _, p)| (name, p)).collect();
+
+        assert_eq!(
+            observed,
+            vec![
+                ("alpha".to_string(), Some(2)),
+                ("alpha".to_string(), Some(4)),
+                ("zeta".to_string(), Some(16)),
+                ("zeta".to_string(), Some(24)),
+                ("zeta".to_string(), Some(32)),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_format_markdown_is_deterministic_for_fixed_inputs() {
+        let make_result = || CiRunResult {
+            timestamp: "2026-02-01T00:00:00Z".to_string(),
+            circuits: vec![
+                CiCircuitResult {
+                    circuit_name: "zeta".to_string(),
+                    params: Some(8),
+                    prove_ms: 200.0,
+                    gates: Some(5000),
+                    proof_size_bytes: Some(2048),
+                    status: "ok".to_string(),
+                },
+                CiCircuitResult {
+                    circuit_name: "alpha".to_string(),
+                    params: Some(2),
+                    prove_ms: 100.0,
+                    gates: Some(3000),
+                    proof_size_bytes: Some(1024),
+                    status: "ok".to_string(),
+                },
+            ],
+            comparison: Some(CompareResult {
+                baseline_ref: "baseline.jsonl".to_string(),
+                target_ref: "target.jsonl".to_string(),
+                threshold: 10.0,
+                circuits: vec![
+                    CircuitComparison {
+                        circuit_name: "zeta".to_string(),
+                        metrics: vec![
+                            MetricComparison {
+                                metric: "gates".to_string(),
+                                baseline: 5000.0,
+                                target: 5200.0,
+                                delta: 200.0,
+                                percent: 4.0,
+                                status: CompareStatus::Unchanged,
+                            },
+                            MetricComparison {
+                                metric: "prove_ms".to_string(),
+                                baseline: 180.0,
+                                target: 200.0,
+                                delta: 20.0,
+                                percent: 11.1,
+                                status: CompareStatus::Regression,
+                            },
+                        ],
+                        has_regression: true,
+                    },
+                    CircuitComparison {
+                        circuit_name: "alpha".to_string(),
+                        metrics: vec![MetricComparison {
+                            metric: "prove_ms".to_string(),
+                            baseline: 110.0,
+                            target: 100.0,
+                            delta: -10.0,
+                            percent: -9.09,
+                            status: CompareStatus::Unchanged,
+                        }],
+                        has_regression: false,
+                    },
+                ],
+                total_regressions: 1,
+                total_improvements: 0,
+                ci_exit_code: 1,
+            }),
+            exit_code: 1,
+        };
+
+        let a = format_markdown(&make_result());
+        let b = format_markdown(&make_result());
+        assert_eq!(a, b, "markdown output must be deterministic");
+
+        let alpha_pos = a.find("| alpha |").unwrap();
+        let zeta_pos = a.find("| zeta |").unwrap();
+        assert!(
+            alpha_pos < zeta_pos,
+            "circuit rows should be deterministically sorted"
+        );
+    }
 }

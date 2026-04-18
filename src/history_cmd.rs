@@ -2,6 +2,7 @@
 //!
 //! Builds derived artifacts (index.json, index.html, per-run detail pages) from canonical JSONL.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use crate::history::{build_index, write_history_html, write_index_json, write_run_detail_html};
@@ -57,18 +58,26 @@ pub fn build(jsonl_path: PathBuf, out_dir: PathBuf) -> BenchResult<()> {
 
     // Read the original BenchRecords to get full data for detail pages
     let reader = JsonlWriter::new(&jsonl_path);
-    let bench_records = reader.read_all()?;
+    let mut bench_records = reader.read_all()?;
+    bench_records.sort_by(|a, b| a.record_id.cmp(&b.record_id));
 
-    // Build a map from record_id to BenchRecord for lookup
-    let record_map: std::collections::HashMap<&str, &crate::core::schema::BenchRecord> =
-        bench_records
-            .iter()
-            .map(|r| (r.record_id.as_str(), r))
-            .collect();
+    // Build a deterministically ordered map from record_id to BenchRecord for lookup
+    let record_map: BTreeMap<&str, &crate::core::schema::BenchRecord> = bench_records
+        .iter()
+        .map(|r| (r.record_id.as_str(), r))
+        .collect();
 
-    // Generate detail pages for each index record
+    // Generate detail pages in deterministic slug order
+    let mut ordered_records: Vec<_> = records.iter().collect();
+    ordered_records.sort_by(|a, b| {
+        a.detail_slug
+            .as_deref()
+            .cmp(&b.detail_slug.as_deref())
+            .then_with(|| a.record_id.cmp(&b.record_id))
+    });
+
     let mut detail_count = 0;
-    for index_record in &records {
+    for index_record in ordered_records {
         if let (Some(slug), Some(bench_record)) = (
             index_record.detail_slug.as_ref(),
             record_map.get(index_record.record_id.as_str()),

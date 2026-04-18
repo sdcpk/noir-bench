@@ -17,6 +17,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   NOIR_VERSION: "1.0.0-beta.11"
+  DIAGNOSTICS_DIR: "out/nightly-diagnostics"
 
 jobs:
   bench-full:
@@ -27,6 +28,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Guard core schema invariants
+        run: ./scripts/ci/check_core_schema_unchanged.sh
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -88,10 +92,11 @@ jobs:
           set +e
           ITERATIONS="${{ github.event.inputs.iterations || '10' }}"
           CIRCUITS="${{ github.event.inputs.circuits }}"
+          mkdir -p "${DIAGNOSTICS_DIR}"
 
-          CIRCUIT_ARGS=""
+          CIRCUIT_ARGS=()
           if [ -n "$CIRCUITS" ]; then
-            CIRCUIT_ARGS="--circuits $CIRCUITS"
+            CIRCUIT_ARGS=(--circuits "$CIRCUITS")
           fi
 
           echo "Running full benchmark suite..."
@@ -104,48 +109,77 @@ jobs:
             --warmup 3 \
             --threshold 5.0 \
             --format markdown \
-            --output .noir-bench-nightly-results.jsonl \
-            $CIRCUIT_ARGS \
+            --baseline-file .noir-bench-nightly-baseline.jsonl \
+            --output "${DIAGNOSTICS_DIR}/nightly-results.jsonl" \
+            --json-out "${DIAGNOSTICS_DIR}/compare.json" \
+            --html-out "${DIAGNOSTICS_DIR}/compare.html" \
+            "${CIRCUIT_ARGS[@]}" \
             > bench-report.md 2>&1
 
           EXIT_CODE=$?
           echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
 
+          # Ensure diagnostics files always exist, even when baseline compare is unavailable.
+          [ -f "${DIAGNOSTICS_DIR}/nightly-results.jsonl" ] || : > "${DIAGNOSTICS_DIR}/nightly-results.jsonl"
+          if [ ! -f "${DIAGNOSTICS_DIR}/compare.json" ]; then
+            echo '{"note":"baseline unavailable; comparison skipped"}' > "${DIAGNOSTICS_DIR}/compare.json"
+          fi
+          if [ ! -f "${DIAGNOSTICS_DIR}/compare.html" ]; then
+            cat > "${DIAGNOSTICS_DIR}/compare.html" <<'EOF'
+<!doctype html><html><head><meta charset="utf-8"><title>noir-bench nightly compare</title></head><body><p>Baseline unavailable; comparison skipped.</p></body></html>
+EOF
+          fi
+
           cat bench-report.md
 
-      - name: Generate detailed CSV report
+      - name: Build history diagnostics
+        if: always()
         run: |
-          ./target/release/noir-bench export-csv \
-            --input .noir-bench-nightly-results.jsonl \
-            --output bench-results.csv || true
+          mkdir -p "${DIAGNOSTICS_DIR}/history"
+          ./target/release/noir-bench history build \
+            --jsonl "${DIAGNOSTICS_DIR}/nightly-results.jsonl" \
+            --out "${DIAGNOSTICS_DIR}/history" || true
 
-      - name: Upload nightly results
+          [ -f "${DIAGNOSTICS_DIR}/history/index.json" ] || echo "[]" > "${DIAGNOSTICS_DIR}/history/index.json"
+          if [ ! -f "${DIAGNOSTICS_DIR}/history/index.html" ]; then
+            cat > "${DIAGNOSTICS_DIR}/history/index.html" <<'EOF'
+<!doctype html><html><head><meta charset="utf-8"><title>noir-bench history</title></head><body><p>History build unavailable.</p></body></html>
+EOF
+          fi
+
+      - name: Write concise diagnostics summary
+        if: always()
+        run: |
+          RESULT="no regressions"
+          if [ "${{ steps.bench.outputs.exit_code }}" != "0" ] && [ -n "${{ steps.bench.outputs.exit_code }}" ]; then
+            RESULT="regressions detected (warn-only)"
+          fi
+
+          {
+            echo "## Nightly Diagnostics"
+            echo "- Run: #${{ github.run_number }}"
+            echo "- Date (UTC): $(date -u +"%Y-%m-%d %H:%M UTC")"
+            echo "- Noir Version: ${{ env.NOIR_VERSION }}"
+            echo "- CI Exit Code: ${{ steps.bench.outputs.exit_code }}"
+            echo "- Result: ${RESULT}"
+            echo "- Artifact files: nightly-results.jsonl, compare.json, compare.html, history/index.json, history/index.html"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload nightly diagnostics
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: noir-bench-nightly-${{ github.run_number }}
-          path: |
-            .noir-bench-nightly-results.jsonl
-            bench-results.csv
-            bench-report.md
+          name: noir-bench-nightly-diagnostics-${{ github.run_number }}
+          path: ${{ env.DIAGNOSTICS_DIR }}
           retention-days: 90
 
       - name: Update nightly baseline
         uses: actions/upload-artifact@v4
         with:
           name: noir-bench-nightly-baseline
-          path: .noir-bench-nightly-results.jsonl
+          path: ${{ env.DIAGNOSTICS_DIR }}/nightly-results.jsonl
           retention-days: 180
           overwrite: true
-
-      - name: Create summary
-        run: |
-          echo "## Nightly Benchmark Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Run:** #${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Date:** $(date -u +"%Y-%m-%d %H:%M UTC")" >> $GITHUB_STEP_SUMMARY
-          echo "**Noir Version:** ${{ env.NOIR_VERSION }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          cat bench-report.md >> $GITHUB_STEP_SUMMARY
 
       - name: Report regression (if any)
         if: steps.bench.outputs.exit_code != '0' && steps.bench.outputs.exit_code != ''
