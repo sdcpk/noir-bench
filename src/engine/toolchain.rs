@@ -227,12 +227,12 @@ impl Toolchain for NargoToolchain {
         let program = read_program_from_file(artifact)
             .map_err(|e| crate::BenchError::Message(format!("failed to read artifact: {}", e)))?;
 
-        let compiled: noirc_driver::CompiledProgram = program.into();
+        let compiled: noirc_artifacts::program::CompiledProgram = program.into();
 
         // Execute to generate witness
         let exec_res = execute_program_artifact(
             &compiled,
-            &Bn254BlackBoxSolver(false),
+            &Bn254BlackBoxSolver,
             &mut DefaultForeignCallBuilder::default().build(),
             prover_toml,
         )
