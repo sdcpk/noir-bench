@@ -125,9 +125,7 @@ jobs:
             echo '{"note":"baseline unavailable; comparison skipped"}' > "${DIAGNOSTICS_DIR}/compare.json"
           fi
           if [ ! -f "${DIAGNOSTICS_DIR}/compare.html" ]; then
-            cat > "${DIAGNOSTICS_DIR}/compare.html" <<'EOF'
-<!doctype html><html><head><meta charset="utf-8"><title>noir-bench nightly compare</title></head><body><p>Baseline unavailable; comparison skipped.</p></body></html>
-EOF
+            echo '<!doctype html><html><head><meta charset="utf-8"><title>noir-bench nightly compare</title></head><body><p>Baseline unavailable; comparison skipped.</p></body></html>' > "${DIAGNOSTICS_DIR}/compare.html"
           fi
 
           cat bench-report.md
@@ -142,9 +140,7 @@ EOF
 
           [ -f "${DIAGNOSTICS_DIR}/history/index.json" ] || echo "[]" > "${DIAGNOSTICS_DIR}/history/index.json"
           if [ ! -f "${DIAGNOSTICS_DIR}/history/index.html" ]; then
-            cat > "${DIAGNOSTICS_DIR}/history/index.html" <<'EOF'
-<!doctype html><html><head><meta charset="utf-8"><title>noir-bench history</title></head><body><p>History build unavailable.</p></body></html>
-EOF
+            echo '<!doctype html><html><head><meta charset="utf-8"><title>noir-bench history</title></head><body><p>History build unavailable.</p></body></html>' > "${DIAGNOSTICS_DIR}/history/index.html"
           fi
 
       - name: Write concise diagnostics summary
