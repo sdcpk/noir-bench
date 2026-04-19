@@ -84,12 +84,32 @@ jobs:
             fi
           done
 
-      - name: Download baseline artifact
+      - name: Download baseline artifact from last successful main run
         id: download-baseline
-        uses: actions/download-artifact@v4
-        with:
-          name: noir-bench-baseline
-          path: _baseline
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          RUN_ID=$(gh run list \
+            --repo "${{ github.repository }}" \
+            --workflow bench.yml \
+            --branch main \
+            --status success \
+            --limit 5 \
+            --json databaseId,headSha \
+            --jq '.[] | select(.databaseId != ${{ github.run_id }}) | .databaseId' \
+            | head -1)
+          if [ -n "$RUN_ID" ]; then
+            mkdir -p _baseline
+            gh run download "$RUN_ID" \
+              --repo "${{ github.repository }}" \
+              -n noir-bench-baseline \
+              -D _baseline \
+              || echo "::warning::Failed to download baseline from run $RUN_ID"
+            ls -la _baseline/ 2>&1 || true
+          else
+            echo "::warning::No prior successful main run found; skipping baseline download"
+          fi
         continue-on-error: true
 
       - name: Run CI benchmarks
@@ -118,26 +138,6 @@ jobs:
 
           # Save for artifact
           cp bench-report.md $GITHUB_STEP_SUMMARY || true
-
-      - name: Debug — verify real work ran
-        if: always()
-        run: |
-          emit() { echo "::warning::$1"; }
-          which nargo && emit "nargo=$(nargo --version 2>&1 | head -1)"
-          $HOME/.bb/bb --version >/dev/null 2>&1 && emit "bb=$($HOME/.bb/bb --version 2>&1 | head -1)" || emit "bb: missing"
-          for f in examples/*/target/*.json; do
-            if [ -f "$f" ]; then
-              emit "circuit: $f size=$(wc -c < "$f")"
-            fi
-          done
-          if [ -f bench-results.jsonl ]; then
-            emit "jsonl: size=$(wc -c < bench-results.jsonl) lines=$(wc -l < bench-results.jsonl)"
-            head -2 bench-results.jsonl | while IFS= read -r line; do
-              emit "record: $(echo "$line" | cut -c1-400)"
-            done
-          else
-            emit "jsonl: MISSING"
-          fi
 
       - name: Comment benchmark results on PR
         if: github.event_name == 'pull_request' && always()
