@@ -17,6 +17,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   NOIR_VERSION: "1.0.0-beta.20"
+  BB_VERSION: "5.0.0-nightly.20260324"
   DIAGNOSTICS_DIR: "out/nightly-diagnostics"
 
 jobs:
@@ -59,12 +60,10 @@ jobs:
 
       - name: Install Barretenberg
         run: |
-          BB_VERSION="0.82.2"
-          curl -L "https://github.com/AztecProtocol/aztec-packages/releases/download/v${BB_VERSION}/barretenberg-amd64-linux.tar.gz" -o bb.tar.gz
-          tar -xzf bb.tar.gz
-          sudo mv bb /usr/local/bin/bb
-          chmod +x /usr/local/bin/bb
-          bb --version
+          curl -L https://raw.githubusercontent.com/AztecProtocol/aztec-packages/refs/heads/next/barretenberg/bbup/install | bash
+          echo "$HOME/.bb" >> $GITHUB_PATH
+          $HOME/.bb/bbup -v ${{ env.BB_VERSION }}
+          $HOME/.bb/bb --version
 
       - name: Build noir-bench (release)
         run: cargo build --release
@@ -205,16 +204,9 @@ jobs:
 
       - name: Install Barretenberg
         run: |
-          BB_VERSION="0.82.2"
-          if [[ "$(uname -m)" == "arm64" ]]; then
-            ARCH="arm64"
-          else
-            ARCH="amd64"
-          fi
-          curl -L "https://github.com/AztecProtocol/aztec-packages/releases/download/v${BB_VERSION}/barretenberg-${ARCH}-darwin.tar.gz" -o bb.tar.gz
-          tar -xzf bb.tar.gz
-          sudo mv bb /usr/local/bin/bb
-          chmod +x /usr/local/bin/bb
+          curl -L https://raw.githubusercontent.com/AztecProtocol/aztec-packages/refs/heads/next/barretenberg/bbup/install | bash
+          echo "$HOME/.bb" >> $GITHUB_PATH
+          $HOME/.bb/bbup -v ${{ env.BB_VERSION }}
 
       - name: Build noir-bench
         run: cargo build --release

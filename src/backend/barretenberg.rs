@@ -187,8 +187,37 @@ impl Backend for BarretenbergBackend {
             BenchError::Message("BarretenbergBackend::prove requires a witness file".into())
         })?;
 
+        // Caller may read proof/vk paths after this fn returns (e.g. for verify), so leak
+        // the TempDir into a PathBuf instead of letting Drop delete it mid-use.
         let out_dir = tempfile::tempdir()
-            .map_err(|e| BenchError::Message(format!("failed to create temp dir: {e}")))?;
+            .map_err(|e| BenchError::Message(format!("failed to create temp dir: {e}")))?
+            .into_path();
+
+        // bb 5.x split the old one-shot `bb prove` into two steps. We need to write the VK
+        // before proving, otherwise `bb prove` fails looking for a VK at ./target/vk.
+        let mut vk_cmd = Command::new(&self.config.bb_path);
+        vk_cmd
+            .arg("write_vk")
+            .arg("-b")
+            .arg(artifact)
+            .arg("-o")
+            .arg(&out_dir);
+        for arg in &self.config.extra_args {
+            vk_cmd.arg(arg);
+        }
+        vk_cmd
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let (vk_status, _, _) = self.run_with_timeout(vk_cmd, timeout)?;
+        if !vk_status.success() {
+            return Err(BenchError::Message(format!(
+                "bb write_vk failed: status={vk_status}"
+            )));
+        }
+
+        let vk_path = out_dir.join("vk");
 
         let mut cmd = Command::new(&self.config.bb_path);
         cmd.arg("prove")
@@ -197,7 +226,9 @@ impl Backend for BarretenbergBackend {
             .arg("-w")
             .arg(witness_path)
             .arg("-o")
-            .arg(out_dir.path());
+            .arg(&out_dir)
+            .arg("-k")
+            .arg(&vk_path);
 
         for arg in &self.config.extra_args {
             cmd.arg(arg);
@@ -215,14 +246,12 @@ impl Backend for BarretenbergBackend {
             )));
         }
 
-        // Read output file sizes
-        let proof_path = out_dir.path().join("proof");
-        let vk_path = out_dir.path().join("vk");
-        let pk_path = out_dir.path().join("pk");
+        // bb 5.x emits proof + public_inputs + the pre-computed vk; no pk file.
+        let proof_path = out_dir.join("proof");
 
         let proof_size_bytes = std::fs::metadata(&proof_path).ok().map(|m| m.len());
         let verification_key_size_bytes = std::fs::metadata(&vk_path).ok().map(|m| m.len());
-        let proving_key_size_bytes = std::fs::metadata(&pk_path).ok().map(|m| m.len());
+        let proving_key_size_bytes = None;
 
         Ok(ProveOutput {
             prove_time_ms,
@@ -248,6 +277,16 @@ impl Backend for BarretenbergBackend {
     fn verify(&self, proof: &Path, vk: &Path) -> BenchResult<VerifyOutput> {
         let mut cmd = Command::new(&self.config.bb_path);
         cmd.arg("verify").arg("-p").arg(proof).arg("-k").arg(vk);
+
+        // bb 5.x splits public inputs into a sibling file. If our prove step
+        // wrote one next to the proof, pass it through explicitly so verify
+        // does not fall back to looking under ./target.
+        if let Some(dir) = proof.parent() {
+            let public_inputs = dir.join("public_inputs");
+            if public_inputs.exists() {
+                cmd.arg("-i").arg(public_inputs);
+            }
+        }
 
         for arg in &self.config.extra_args {
             cmd.arg(arg);

@@ -21,6 +21,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   NOIR_VERSION: "1.0.0-beta.20"
+  BB_VERSION: "5.0.0-nightly.20260324"
 
 jobs:
   bench:
@@ -65,22 +66,22 @@ jobs:
 
       - name: Install Barretenberg
         run: |
-          # Download pre-built bb binary
-          BB_VERSION="0.82.2"
-          curl -L "https://github.com/AztecProtocol/aztec-packages/releases/download/v${BB_VERSION}/barretenberg-amd64-linux.tar.gz" -o bb.tar.gz
-          tar -xzf bb.tar.gz
-          sudo mv bb /usr/local/bin/bb
-          chmod +x /usr/local/bin/bb
-          bb --version
+          curl -L https://raw.githubusercontent.com/AztecProtocol/aztec-packages/refs/heads/next/barretenberg/bbup/install | bash
+          echo "$HOME/.bb" >> $GITHUB_PATH
+          $HOME/.bb/bbup -v ${{ env.BB_VERSION }}
+          $HOME/.bb/bb --version
 
       - name: Build noir-bench
         run: cargo build --release
 
       - name: Compile example circuits
         run: |
-          cd examples/simple_hash && nargo compile || true
-          cd ../merkle_verify && nargo compile || true
-          cd ../range_bits && nargo compile || true
+          for dir in examples/*/; do
+            if [ -f "$dir/Nargo.toml" ]; then
+              echo "Compiling $dir..."
+              (cd "$dir" && nargo compile) || echo "Failed to compile $dir"
+            fi
+          done
 
       - name: Download baseline artifact
         id: download-baseline
@@ -175,6 +176,7 @@ jobs:
           path: .noir-bench-results.jsonl
           retention-days: 90
           overwrite: true
+          if-no-files-found: error
 
       - name: Check for regressions
         if: steps.bench.outputs.exit_code != '0' && steps.bench.outputs.exit_code != ''
