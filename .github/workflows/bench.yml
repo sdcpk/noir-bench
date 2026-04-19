@@ -80,7 +80,7 @@ jobs:
           for dir in examples/*/; do
             if [ -f "$dir/Nargo.toml" ]; then
               echo "Compiling $dir..."
-              (cd "$dir" && nargo compile) || echo "Failed to compile $dir"
+              (cd "$dir" && nargo compile) || echo "::warning::Failed to compile $dir"
             fi
           done
 
@@ -118,6 +118,26 @@ jobs:
 
           # Save for artifact
           cp bench-report.md $GITHUB_STEP_SUMMARY || true
+
+      - name: Debug — verify real work ran
+        if: always()
+        run: |
+          emit() { echo "::warning::$1"; }
+          which nargo && emit "nargo=$(nargo --version 2>&1 | head -1)"
+          $HOME/.bb/bb --version >/dev/null 2>&1 && emit "bb=$($HOME/.bb/bb --version 2>&1 | head -1)" || emit "bb: missing"
+          for f in examples/*/target/*.json; do
+            if [ -f "$f" ]; then
+              emit "circuit: $f size=$(wc -c < "$f")"
+            fi
+          done
+          if [ -f bench-results.jsonl ]; then
+            emit "jsonl: size=$(wc -c < bench-results.jsonl) lines=$(wc -l < bench-results.jsonl)"
+            head -2 bench-results.jsonl | while IFS= read -r line; do
+              emit "record: $(echo "$line" | cut -c1-400)"
+            done
+          else
+            emit "jsonl: MISSING"
+          fi
 
       - name: Comment benchmark results on PR
         if: github.event_name == 'pull_request' && always()
