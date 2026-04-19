@@ -89,7 +89,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: noir-bench-baseline
-          path: .
+          path: _baseline
         continue-on-error: true
 
       - name: Run CI benchmarks
@@ -98,10 +98,16 @@ jobs:
           set +e  # Don't exit on error
           THRESHOLD="${{ github.event.inputs.threshold || '10.0' }}"
 
+          BASELINE_ARG=""
+          if [ -f _baseline/bench-results.jsonl ]; then
+            BASELINE_ARG="--baseline-file _baseline/bench-results.jsonl"
+          fi
+
           ./target/release/noir-bench ci \
             --threshold "$THRESHOLD" \
             --format markdown \
-            --output .noir-bench-results.jsonl \
+            --output bench-results.jsonl \
+            $BASELINE_ARG \
             > bench-report.md 2>&1
 
           EXIT_CODE=$?
@@ -112,28 +118,6 @@ jobs:
 
           # Save for artifact
           cp bench-report.md $GITHUB_STEP_SUMMARY || true
-
-      - name: Debug — surface bench outputs as annotations
-        if: always()
-        run: |
-          emit() { echo "::warning::$1"; }
-          emit "pwd=$(pwd)"
-          emit "exit_code=${{ steps.bench.outputs.exit_code }}"
-          if [ -f .noir-bench-results.jsonl ]; then
-            emit "jsonl: exists size=$(wc -c < .noir-bench-results.jsonl) lines=$(wc -l < .noir-bench-results.jsonl)"
-            emit "jsonl_head=$(head -1 .noir-bench-results.jsonl | cut -c1-200)"
-          else
-            emit "jsonl: MISSING"
-          fi
-          if [ -f bench-report.md ]; then
-            emit "report: exists size=$(wc -c < bench-report.md)"
-            # Emit first 10 non-empty lines of report as separate annotations
-            head -30 bench-report.md | while IFS= read -r line; do
-              [ -n "$line" ] && emit "report_line: $(echo "$line" | cut -c1-300)"
-            done
-          else
-            emit "report: MISSING"
-          fi
 
       - name: Comment benchmark results on PR
         if: github.event_name == 'pull_request' && always()
@@ -186,7 +170,7 @@ jobs:
         with:
           name: noir-bench-results-${{ github.sha }}
           path: |
-            .noir-bench-results.jsonl
+            bench-results.jsonl
             bench-report.md
           retention-days: 30
           if-no-files-found: ignore
@@ -196,7 +180,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: noir-bench-baseline
-          path: .noir-bench-results.jsonl
+          path: bench-results.jsonl
           retention-days: 90
           overwrite: true
           if-no-files-found: error
