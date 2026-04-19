@@ -113,6 +113,28 @@ jobs:
           # Save for artifact
           cp bench-report.md $GITHUB_STEP_SUMMARY || true
 
+      - name: Debug — surface bench outputs as annotations
+        if: always()
+        run: |
+          emit() { echo "::warning::$1"; }
+          emit "pwd=$(pwd)"
+          emit "exit_code=${{ steps.bench.outputs.exit_code }}"
+          if [ -f .noir-bench-results.jsonl ]; then
+            emit "jsonl: exists size=$(wc -c < .noir-bench-results.jsonl) lines=$(wc -l < .noir-bench-results.jsonl)"
+            emit "jsonl_head=$(head -1 .noir-bench-results.jsonl | cut -c1-200)"
+          else
+            emit "jsonl: MISSING"
+          fi
+          if [ -f bench-report.md ]; then
+            emit "report: exists size=$(wc -c < bench-report.md)"
+            # Emit first 10 non-empty lines of report as separate annotations
+            head -30 bench-report.md | while IFS= read -r line; do
+              [ -n "$line" ] && emit "report_line: $(echo "$line" | cut -c1-300)"
+            done
+          else
+            emit "report: MISSING"
+          fi
+
       - name: Comment benchmark results on PR
         if: github.event_name == 'pull_request' && always()
         uses: actions/github-script@v7
