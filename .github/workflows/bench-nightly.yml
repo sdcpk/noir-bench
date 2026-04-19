@@ -16,7 +16,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  NOIR_VERSION: "1.0.0-beta.11"
+  NOIR_VERSION: "1.0.0-beta.20"
   DIAGNOSTICS_DIR: "out/nightly-diagnostics"
 
 jobs:
