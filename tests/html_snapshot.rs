@@ -20,6 +20,7 @@ fn make_fixed_report() -> RegressionReport {
             target_id: "target-def456".to_string(),
             generated_at: "2026-01-15T12:00:00Z".to_string(),
             threshold_percent: 10.0,
+            metric_thresholds: std::collections::BTreeMap::new(),
             baseline_provenance: Some(Provenance {
                 noir_bench: ToolInfo {
                     name: "noir-bench".to_string(),
@@ -304,6 +305,7 @@ fn test_html_sorted_circuits() {
             target_id: "target".to_string(),
             generated_at: "2026-01-15T12:00:00Z".to_string(),
             threshold_percent: 10.0,
+            metric_thresholds: std::collections::BTreeMap::new(),
             baseline_provenance: None,
             target_provenance: None,
         },
@@ -358,6 +360,7 @@ fn test_html_escapes_dangerous_content() {
             target_id: "target".to_string(),
             generated_at: "2026-01-15T12:00:00Z".to_string(),
             threshold_percent: 10.0,
+            metric_thresholds: std::collections::BTreeMap::new(),
             baseline_provenance: None,
             target_provenance: None,
         },
