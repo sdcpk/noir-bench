@@ -3,6 +3,7 @@
 //! This command runs a subset of benchmarks, compares against a baseline,
 //! and outputs results suitable for CI environments.
 
+use std::collections::BTreeMap;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
@@ -41,6 +42,9 @@ pub struct CiConfig {
     /// Number of warmup iterations
     #[serde(default)]
     pub warmup: Option<usize>,
+    /// Per-metric regression thresholds
+    #[serde(default)]
+    pub thresholds: BTreeMap<String, f64>,
 }
 
 /// Full config including CI section
@@ -76,6 +80,9 @@ pub struct CiCircuitResult {
 pub struct CiRunResult {
     pub timestamp: String,
     pub circuits: Vec<CiCircuitResult>,
+    pub default_threshold: f64,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub metric_thresholds: BTreeMap<String, f64>,
     pub comparison: Option<CompareResult>,
     pub exit_code: i32,
 }
@@ -290,6 +297,15 @@ fn format_markdown(result: &CiRunResult) -> String {
     out.push_str("## 🚀 noir-bench CI Report\n\n");
     out.push_str(&format!("**Timestamp:** {}\n\n", result.timestamp));
 
+    out.push_str("### Thresholds\n\n");
+    out.push_str("| Metric | Threshold |\n");
+    out.push_str("|--------|-----------|\n");
+    out.push_str(&format!("| default | {:.1}% |\n", result.default_threshold));
+    for (metric, threshold) in &result.metric_thresholds {
+        out.push_str(&format!("| {} | {:.1}% |\n", metric, threshold));
+    }
+    out.push_str("\n");
+
     // Benchmark results table
     out.push_str("### Benchmark Results\n\n");
     out.push_str("| Circuit | Params | Prove (ms) | Gates | Proof Size | Status |\n");
@@ -333,12 +349,12 @@ fn format_markdown(result: &CiRunResult) -> String {
 
         out.push_str("\n### Regression Analysis\n\n");
         out.push_str(&format!(
-            "**Baseline:** `{}` | **Target:** current | **Threshold:** {:.1}%\n\n",
+            "**Baseline:** `{}` | **Target:** current | **Default Threshold:** {:.1}%\n\n",
             comparison.baseline_ref, comparison.threshold
         ));
 
-        out.push_str("| Circuit | Metric | Baseline | Current | Δ | Status |\n");
-        out.push_str("|---------|--------|----------|---------|---|--------|\n");
+        out.push_str("| Circuit | Metric | Baseline | Current | Δ | Threshold | Status |\n");
+        out.push_str("|---------|--------|----------|---------|---|-----------|--------|\n");
 
         for circuit in &comparison_circuits {
             let mut metrics = circuit.metrics.clone();
@@ -353,12 +369,13 @@ fn format_markdown(result: &CiRunResult) -> String {
                 };
 
                 out.push_str(&format!(
-                    "| {} | {} | {:.1} | {:.1} | {} | {} |\n",
+                    "| {} | {} | {:.1} | {:.1} | {} | {:.1}% | {} |\n",
                     circuit_col,
                     m.metric,
                     m.baseline,
                     m.target,
                     delta_str,
+                    m.threshold,
                     m.status.emoji()
                 ));
             }
@@ -438,6 +455,7 @@ pub fn run(
     let threshold_pct = threshold
         .or(ci_config.threshold_percent)
         .unwrap_or(DEFAULT_THRESHOLD);
+    let metric_thresholds = ci_config.thresholds.clone();
 
     // Determine iterations
     let iter_n = iterations
@@ -462,7 +480,13 @@ pub fn run(
         }
     );
     eprintln!("  Baseline: {}", baseline_path.display());
-    eprintln!("  Threshold: {:.1}%", threshold_pct);
+    eprintln!("  Default threshold: {:.1}%", threshold_pct);
+    if !metric_thresholds.is_empty() {
+        eprintln!("  Metric thresholds:");
+        for (metric, threshold) in &metric_thresholds {
+            eprintln!("    {}: {:.1}%", metric, threshold);
+        }
+    }
     eprintln!("  Iterations: {} (warmup: {})", iter_n, warmup_n);
     eprintln!("");
 
@@ -484,6 +508,7 @@ pub fn run(
             baseline_json: None,
             target_json: None,
             threshold: threshold_pct,
+            metric_thresholds: metric_thresholds.clone(),
             format: "text".to_string(),
             json_out: None,
         };
@@ -504,6 +529,8 @@ pub fn run(
     let result = CiRunResult {
         timestamp: now_string(),
         circuits: circuit_results,
+        default_threshold: threshold_pct,
+        metric_thresholds,
         comparison,
         exit_code,
     };
@@ -655,16 +682,21 @@ mod tests {
                 baseline_ref: "baseline.jsonl".to_string(),
                 target_ref: "target.jsonl".to_string(),
                 threshold: 10.0,
+                metric_thresholds: BTreeMap::from([
+                    ("prove_ms".to_string(), 25.0),
+                    ("total_gates".to_string(), 0.0),
+                ]),
                 circuits: vec![
                     CircuitComparison {
                         circuit_name: "zeta".to_string(),
                         metrics: vec![
                             MetricComparison {
-                                metric: "gates".to_string(),
+                                metric: "total_gates".to_string(),
                                 baseline: 5000.0,
                                 target: 5200.0,
                                 delta: 200.0,
                                 percent: 4.0,
+                                threshold: 0.0,
                                 status: CompareStatus::Unchanged,
                             },
                             MetricComparison {
@@ -673,6 +705,7 @@ mod tests {
                                 target: 200.0,
                                 delta: 20.0,
                                 percent: 11.1,
+                                threshold: 25.0,
                                 status: CompareStatus::Regression,
                             },
                         ],
@@ -686,6 +719,7 @@ mod tests {
                             target: 100.0,
                             delta: -10.0,
                             percent: -9.09,
+                            threshold: 25.0,
                             status: CompareStatus::Unchanged,
                         }],
                         has_regression: false,
@@ -695,6 +729,11 @@ mod tests {
                 total_improvements: 0,
                 ci_exit_code: 1,
             }),
+            default_threshold: 10.0,
+            metric_thresholds: BTreeMap::from([
+                ("prove_ms".to_string(), 25.0),
+                ("total_gates".to_string(), 0.0),
+            ]),
             exit_code: 1,
         };
 
@@ -708,5 +747,7 @@ mod tests {
             alpha_pos < zeta_pos,
             "circuit rows should be deterministically sorted"
         );
+        assert!(a.contains("| default | 10.0% |"));
+        assert!(a.contains("| prove_ms | 25.0% |"));
     }
 }

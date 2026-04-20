@@ -11,6 +11,13 @@ iterations = 3
 # Number of warmup iterations
 warmup = 1
 
+[ci.thresholds]
+prove_ms = 25.0
+peak_rss_mb = 50.0
+total_gates = 0.0
+proof_size_bytes = 0.0
+acir_opcodes = 0.0
+
 [[circuit]]
 name = "merkle"
 path = "examples/merkle_verify/target/merkle_verify.json"
@@ -28,5 +35,4 @@ path = "examples/unconstrained_sort/target/unconstrained_sort.json"
 [[circuit]]
 name = "evm-example"
 path = "examples/evm-verify"
-
 

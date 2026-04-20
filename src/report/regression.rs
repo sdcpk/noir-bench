@@ -5,6 +5,8 @@
 //! - Rendered to Markdown for PR comments
 //! - Used to determine CI exit codes
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::engine::provenance::{Provenance, VersionMismatch};
@@ -39,6 +41,9 @@ pub struct ReportMetadata {
     pub generated_at: String,
     /// Regression threshold percentage used
     pub threshold_percent: f64,
+    /// Per-metric thresholds when configured
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub metric_thresholds: BTreeMap<String, f64>,
     /// Baseline provenance (if available)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub baseline_provenance: Option<Provenance>,
@@ -175,6 +180,7 @@ impl RegressionReport {
                 target_id: target_id.into(),
                 generated_at,
                 threshold_percent,
+                metric_thresholds: BTreeMap::new(),
                 baseline_provenance: None,
                 target_provenance: None,
             },
@@ -247,6 +253,11 @@ impl RegressionReport {
         }
         self.metadata.baseline_provenance = baseline;
         self.metadata.target_provenance = target;
+    }
+
+    /// Set per-metric thresholds used for comparison.
+    pub fn set_metric_thresholds(&mut self, thresholds: BTreeMap<String, f64>) {
+        self.metadata.metric_thresholds = thresholds;
     }
 }
 
@@ -339,13 +350,26 @@ pub fn render_markdown(report: &RegressionReport) -> String {
         "| | |\n|---|---|\n\
          | **Baseline** | `{}` |\n\
          | **Target** | `{}` |\n\
-         | **Threshold** | {:.1}% |\n\
+         | **Default Threshold** | {:.1}% |\n\
          | **Generated** | {} |\n\n",
         report.metadata.baseline_id,
         report.metadata.target_id,
         report.metadata.threshold_percent,
         &report.metadata.generated_at[..19].replace('T', " ")
     ));
+
+    if !report.metadata.metric_thresholds.is_empty() {
+        out.push_str("### Thresholds\n\n");
+        out.push_str("| Metric | Threshold |\n|--------|-----------|\n");
+        out.push_str(&format!(
+            "| default | {:.1}% |\n",
+            report.metadata.threshold_percent
+        ));
+        for (metric, threshold) in &report.metadata.metric_thresholds {
+            out.push_str(&format!("| {} | {:.1}% |\n", metric, threshold));
+        }
+        out.push_str("\n");
+    }
 
     // Version mismatch warnings
     if !report.version_mismatches.is_empty() {
@@ -379,19 +403,20 @@ pub fn render_markdown(report: &RegressionReport) -> String {
     // Group regressions by metric
     if report.summary.regressions > 0 {
         out.push_str("### 🔴 Regressions\n\n");
-        out.push_str("| Circuit | Metric | Baseline | Target | Delta | Status |\n");
-        out.push_str("|---------|--------|----------|--------|-------|--------|\n");
+        out.push_str("| Circuit | Metric | Baseline | Target | Delta | Gate | Status |\n");
+        out.push_str("|---------|--------|----------|--------|-------|------|--------|\n");
 
         for circuit in &report.circuits {
             for metric in &circuit.metrics {
                 if metric.status == RegressionStatus::ExceededThreshold {
                     out.push_str(&format!(
-                        "| {} | {} | {} | {} | {:+.1}% | {} |\n",
+                        "| {} | {} | {} | {} | {:+.1}% | > {:.1}% | {} |\n",
                         circuit.circuit_name,
                         metric.metric,
                         format_value(metric.baseline, &metric.metric),
                         format_value(metric.target, &metric.metric),
                         metric.delta_pct,
+                        metric.threshold,
                         metric.status.emoji()
                     ));
                 }
@@ -406,19 +431,20 @@ pub fn render_markdown(report: &RegressionReport) -> String {
         if report.summary.improvements > 5 {
             out.push_str("<details>\n<summary>Show all improvements</summary>\n\n");
         }
-        out.push_str("| Circuit | Metric | Baseline | Target | Delta | Status |\n");
-        out.push_str("|---------|--------|----------|--------|-------|--------|\n");
+        out.push_str("| Circuit | Metric | Baseline | Target | Delta | Gate | Status |\n");
+        out.push_str("|---------|--------|----------|--------|-------|------|--------|\n");
 
         for circuit in &report.circuits {
             for metric in &circuit.metrics {
                 if metric.status == RegressionStatus::Improved {
                     out.push_str(&format!(
-                        "| {} | {} | {} | {} | {:+.1}% | {} |\n",
+                        "| {} | {} | {} | {} | {:+.1}% | < -{:.1}% | {} |\n",
                         circuit.circuit_name,
                         metric.metric,
                         format_value(metric.baseline, &metric.metric),
                         format_value(metric.target, &metric.metric),
                         metric.delta_pct,
+                        metric.threshold,
                         metric.status.emoji()
                     ));
                 }
@@ -433,8 +459,8 @@ pub fn render_markdown(report: &RegressionReport) -> String {
 
     // Full results table (collapsed)
     out.push_str("<details>\n<summary>All Results</summary>\n\n");
-    out.push_str("| Circuit | Metric | Baseline | Target | Delta | Status |\n");
-    out.push_str("|---------|--------|----------|--------|-------|--------|\n");
+    out.push_str("| Circuit | Metric | Baseline | Target | Delta | Threshold | Status |\n");
+    out.push_str("|---------|--------|----------|--------|-------|-----------|--------|\n");
 
     for circuit in &report.circuits {
         for (i, metric) in circuit.metrics.iter().enumerate() {
@@ -445,12 +471,13 @@ pub fn render_markdown(report: &RegressionReport) -> String {
                 format!("{:+.1}%", metric.delta_pct)
             };
             out.push_str(&format!(
-                "| {} | {} | {} | {} | {} | {} |\n",
+                "| {} | {} | {} | {} | {} | {:.1}% | {} |\n",
                 circuit_col,
                 metric.metric,
                 format_value(metric.baseline, &metric.metric),
                 format_value(metric.target, &metric.metric),
                 delta_str,
+                metric.threshold,
                 metric.status.emoji()
             ));
         }
@@ -525,6 +552,7 @@ mod tests {
         assert_eq!(report.metadata.baseline_id, "baseline.jsonl");
         assert_eq!(report.metadata.target_id, "target.jsonl");
         assert_eq!(report.metadata.threshold_percent, 10.0);
+        assert!(report.metadata.metric_thresholds.is_empty());
     }
 
     #[test]
@@ -651,7 +679,39 @@ mod tests {
         assert!(md.contains("Regressions"));
         assert!(md.contains("slow-circuit"));
         assert!(md.contains("prove_ms"));
+        assert!(md.contains("> 10.0%"));
         assert!(md.contains("🔴"));
+    }
+
+    #[test]
+    fn test_render_markdown_shows_metric_thresholds() {
+        let mut report = RegressionReport::new("base", "target", 10.0);
+        report.set_metric_thresholds(BTreeMap::from([
+            ("prove_ms".to_string(), 25.0),
+            ("total_gates".to_string(), 0.0),
+        ]));
+        report.add_circuit(CircuitRegression {
+            circuit_name: "test".to_string(),
+            params: None,
+            metrics: vec![MetricDelta {
+                metric: "prove_ms".to_string(),
+                baseline: 100.0,
+                target: 120.0,
+                delta_abs: 20.0,
+                delta_pct: 20.0,
+                threshold: 25.0,
+                status: RegressionStatus::Ok,
+            }],
+            status: RegressionStatus::Ok,
+        });
+        report.finalize();
+
+        let md = render_markdown(&report);
+
+        assert!(md.contains("Default Threshold"));
+        assert!(md.contains("### Thresholds"));
+        assert!(md.contains("| prove_ms | 25.0% |"));
+        assert!(md.contains("| total_gates | 0.0% |"));
     }
 
     #[test]
