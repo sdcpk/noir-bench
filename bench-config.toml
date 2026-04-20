@@ -1,7 +1,7 @@
 # CI configuration for automated regression testing
 [ci]
 # Circuits to run in CI (subset of full benchmark suite for speed)
-circuits = ["poseidon", "merkle", "unconstrained_sort"]
+circuits = ["poseidon", "merkle", "range_bits", "unconstrained_sort"]
 # Path to baseline JSONL file for comparison
 baseline_file = ".noir-bench-baseline.jsonl"
 # Regression threshold percentage (fail CI if exceeded)
@@ -33,6 +33,10 @@ name = "unconstrained_sort"
 path = "examples/unconstrained_sort/target/unconstrained_sort.json"
 
 [[circuit]]
+name = "range_bits"
+path = "examples/range_bits/target/range_bits.json"
+params = [8, 16, 32]
+
+[[circuit]]
 name = "evm-example"
 path = "examples/evm-verify"
-

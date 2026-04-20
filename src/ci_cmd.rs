@@ -189,7 +189,7 @@ fn run_ci_benchmarks(
         eprintln!("Running CI benchmark: {} (params={:?})", name, params);
 
         // Find Prover.toml
-        let prover_toml = find_prover_toml(&path);
+        let prover_toml = find_prover_toml(&path, params);
 
         // Build workflow inputs
         let mut inputs =
@@ -270,18 +270,29 @@ fn run_ci_benchmarks(
     Ok(results)
 }
 
-/// Find Prover.toml for a circuit path.
-fn find_prover_toml(path: &PathBuf) -> Option<PathBuf> {
+fn candidate_prover_toml_paths(path: &PathBuf, params: Option<u64>) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Some(parent) = path.parent().and_then(|dir| dir.parent()) {
+        if let Some(param) = params {
+            candidates.push(parent.join(format!("Prover.{param}.toml")));
+        }
+        candidates.push(parent.join("Prover.toml"));
+    }
+
     // Try alongside artifact with .toml extension
     let mut p = path.clone();
     p.set_extension("toml");
-    if p.exists() {
-        return Some(p);
-    }
-    // Try parent of target/
-    path.parent()
-        .and_then(|dir| dir.parent().map(|pp| pp.join("Prover.toml")))
-        .filter(|cand| cand.exists())
+    candidates.push(p);
+
+    candidates
+}
+
+/// Find Prover.toml for a circuit path.
+fn find_prover_toml(path: &PathBuf, params: Option<u64>) -> Option<PathBuf> {
+    candidate_prover_toml_paths(path, params)
+        .into_iter()
+        .find(|cand| cand.exists())
 }
 
 /// Format CI results as markdown
@@ -749,5 +760,20 @@ mod tests {
         );
         assert!(a.contains("| default | 10.0% |"));
         assert!(a.contains("| prove_ms | 25.0% |"));
+    }
+
+    #[test]
+    fn test_candidate_prover_toml_paths_prefers_param_specific_inputs() {
+        let path = PathBuf::from("examples/merkle_verify/target/merkle_verify.json");
+        let candidates = candidate_prover_toml_paths(&path, Some(16));
+
+        assert_eq!(
+            candidates,
+            vec![
+                PathBuf::from("examples/merkle_verify/Prover.16.toml"),
+                PathBuf::from("examples/merkle_verify/Prover.toml"),
+                PathBuf::from("examples/merkle_verify/target/merkle_verify.toml"),
+            ]
+        );
     }
 }
