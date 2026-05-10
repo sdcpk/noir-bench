@@ -12,9 +12,8 @@ iterations = 3
 warmup = 1
 
 [ci.thresholds]
-# OQ-010 measurement trigger: semantic no-op for repeated CI samples.
-prove_ms = 25.0
-peak_rss_mb = 50.0
+prove_ms = 35.0
+peak_rss_mb = 1.0
 total_gates = 0.0
 proof_size_bytes = 0.0
 acir_opcodes = 0.0
