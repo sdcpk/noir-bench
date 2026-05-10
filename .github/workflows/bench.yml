@@ -205,8 +205,11 @@ jobs:
           overwrite: true
           if-no-files-found: error
 
+      # On main pushes the run is *defining* the baseline, not comparing
+      # against it, so the regression check must not gate the run — otherwise
+      # any workload-changing commit fails CI and orphans its own baseline.
       - name: Check for regressions
-        if: steps.bench.outputs.exit_code != '0' && steps.bench.outputs.exit_code != ''
+        if: github.event_name == 'pull_request' && steps.bench.outputs.exit_code != '0' && steps.bench.outputs.exit_code != ''
         run: |
           echo "::error::Benchmark regression detected! See report above."
           exit 1
