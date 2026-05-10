@@ -2,7 +2,7 @@
 //!
 //! Supports comparing single JSON reports or JSONL files containing multiple records.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -26,6 +26,7 @@ pub struct MetricComparison {
     pub target: f64,
     pub delta: f64,
     pub percent: f64,
+    pub threshold: f64,
     pub status: CompareStatus,
 }
 
@@ -62,6 +63,8 @@ pub struct CompareResult {
     pub baseline_ref: String,
     pub target_ref: String,
     pub threshold: f64,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub metric_thresholds: BTreeMap<String, f64>,
     pub circuits: Vec<CircuitComparison>,
     pub total_regressions: usize,
     pub total_improvements: usize,
@@ -78,9 +81,10 @@ const METRIC_DEFS: &[(&str, &str, bool)] = &[
     ("verify_stats.mean_ms", "verify_ms", true),
     ("backend_prove_time_ms", "backend_ms", true),
     ("execution_time_ms", "exec_ms", true),
-    ("total_gates", "gates", true),
-    ("proof_size_bytes", "proof_size", true),
-    ("peak_memory_bytes", "peak_mem", true),
+    ("total_gates", "total_gates", true),
+    ("proof_size_bytes", "proof_size_bytes", true),
+    ("acir_opcodes", "acir_opcodes", true),
+    ("peak_memory_bytes", "peak_memory_bytes", true),
     ("peak_rss_mb", "peak_rss_mb", true),
     ("proving_key_size_bytes", "pk_size", false),
     ("verification_key_size_bytes", "vk_size", false),
@@ -119,7 +123,20 @@ fn get_circuit_name(v: &Value) -> Option<String> {
         })
 }
 
-fn compare_values(baseline: &Value, target: &Value, threshold: f64) -> Vec<MetricComparison> {
+fn threshold_for_metric(
+    metric: &str,
+    threshold: f64,
+    metric_thresholds: &BTreeMap<String, f64>,
+) -> f64 {
+    metric_thresholds.get(metric).copied().unwrap_or(threshold)
+}
+
+fn compare_values(
+    baseline: &Value,
+    target: &Value,
+    threshold: f64,
+    metric_thresholds: &BTreeMap<String, f64>,
+) -> Vec<MetricComparison> {
     let mut results = Vec::new();
     let mut seen_metrics = std::collections::HashSet::new();
 
@@ -137,11 +154,12 @@ fn compare_values(baseline: &Value, target: &Value, threshold: f64) -> Vec<Metri
 
             let delta = tv - bv;
             let percent = if bv != 0.0 { delta * 100.0 / bv } else { 0.0 };
+            let metric_threshold = threshold_for_metric(display_name, threshold, metric_thresholds);
 
             let status = if *higher_is_worse {
-                if percent > threshold {
+                if percent > metric_threshold {
                     CompareStatus::Regression
-                } else if percent < -threshold {
+                } else if percent < -metric_threshold {
                     CompareStatus::Improvement
                 } else {
                     CompareStatus::Unchanged
@@ -157,6 +175,7 @@ fn compare_values(baseline: &Value, target: &Value, threshold: f64) -> Vec<Metri
                 target: tv,
                 delta,
                 percent,
+                threshold: metric_threshold,
                 status,
             });
         }
@@ -165,12 +184,17 @@ fn compare_values(baseline: &Value, target: &Value, threshold: f64) -> Vec<Metri
     results
 }
 
-fn compare_single_records(baseline: &Value, target: &Value, threshold: f64) -> CircuitComparison {
+fn compare_single_records(
+    baseline: &Value,
+    target: &Value,
+    threshold: f64,
+    metric_thresholds: &BTreeMap<String, f64>,
+) -> CircuitComparison {
     let circuit_name = get_circuit_name(baseline)
         .or_else(|| get_circuit_name(target))
         .unwrap_or_else(|| "unknown".to_string());
 
-    let metrics = compare_values(baseline, target, threshold);
+    let metrics = compare_values(baseline, target, threshold, metric_thresholds);
     let has_regression = metrics
         .iter()
         .any(|m| m.status == CompareStatus::Regression);
@@ -187,6 +211,7 @@ fn compare_jsonl_files(
     baseline_path: &PathBuf,
     target_path: &PathBuf,
     threshold: f64,
+    metric_thresholds: &BTreeMap<String, f64>,
 ) -> BenchResult<Vec<CircuitComparison>> {
     let baseline_reader = JsonlWriter::new(baseline_path);
     let target_reader = JsonlWriter::new(target_path);
@@ -209,11 +234,12 @@ fn compare_jsonl_files(
             .map_err(|e| BenchError::Message(format!("failed to serialize record: {e}")))?;
 
         if let Some(baseline_json) = baseline_map.get(&record.circuit_name) {
-            let comparison = compare_single_records(baseline_json, &target_json, threshold);
+            let comparison =
+                compare_single_records(baseline_json, &target_json, threshold, metric_thresholds);
             comparisons.push(comparison);
         } else {
             // New circuit in target, no baseline to compare
-            let metrics = compare_values(&Value::Null, &target_json, threshold);
+            let metrics = compare_values(&Value::Null, &target_json, threshold, metric_thresholds);
             comparisons.push(CircuitComparison {
                 circuit_name: record.circuit_name,
                 metrics,
@@ -230,6 +256,7 @@ fn compare_json_files(
     baseline_path: &PathBuf,
     target_path: &PathBuf,
     threshold: f64,
+    metric_thresholds: &BTreeMap<String, f64>,
 ) -> BenchResult<Vec<CircuitComparison>> {
     let b = std::fs::read(baseline_path).map_err(|e| BenchError::Message(e.to_string()))?;
     let t = std::fs::read(target_path).map_err(|e| BenchError::Message(e.to_string()))?;
@@ -238,7 +265,7 @@ fn compare_json_files(
     let target: Value =
         serde_json::from_slice(&t).map_err(|e| BenchError::Message(e.to_string()))?;
 
-    let comparison = compare_single_records(&baseline, &target, threshold);
+    let comparison = compare_single_records(&baseline, &target, threshold, metric_thresholds);
     Ok(vec![comparison])
 }
 
@@ -277,9 +304,17 @@ fn format_value(value: f64, metric: &str) -> String {
 fn format_text(result: &CompareResult) -> String {
     let mut out = String::new();
     out.push_str(&format!(
-        "Comparing: {} vs {} (threshold: {:.1}%)\n\n",
+        "Comparing: {} vs {} (default threshold: {:.1}%)\n\n",
         result.baseline_ref, result.target_ref, result.threshold
     ));
+
+    if !result.metric_thresholds.is_empty() {
+        out.push_str("Metric thresholds:\n");
+        for (metric, metric_threshold) in &result.metric_thresholds {
+            out.push_str(&format!("  {}: {:.1}%\n", metric, metric_threshold));
+        }
+        out.push('\n');
+    }
 
     for circuit in &result.circuits {
         out.push_str(&format!("Circuit: {}\n", circuit.circuit_name));
@@ -290,11 +325,12 @@ fn format_text(result: &CompareResult) -> String {
                 CompareStatus::Unchanged => "[OK]",
             };
             out.push_str(&format!(
-                "  {}: {} -> {} ({:+.2}%) {}\n",
+                "  {}: {} -> {} ({:+.2}%, threshold {:.1}%) {}\n",
                 m.metric,
                 format_value(m.baseline, &m.metric),
                 format_value(m.target, &m.metric),
                 m.percent,
+                m.threshold,
                 status_str
             ));
         }
@@ -324,6 +360,7 @@ pub struct CompareConfig {
     pub baseline_json: Option<PathBuf>,
     pub target_json: Option<PathBuf>,
     pub threshold: f64,
+    pub metric_thresholds: BTreeMap<String, f64>,
     pub format: String,
     pub json_out: Option<PathBuf>,
 }
@@ -332,6 +369,7 @@ pub struct CompareConfig {
 pub fn to_regression_report(result: &CompareResult) -> RegressionReport {
     let mut report =
         RegressionReport::new(&result.baseline_ref, &result.target_ref, result.threshold);
+    report.set_metric_thresholds(result.metric_thresholds.clone());
 
     for circuit in &result.circuits {
         let metrics: Vec<MetricDelta> = circuit
@@ -350,7 +388,7 @@ pub fn to_regression_report(result: &CompareResult) -> RegressionReport {
                     target: m.target,
                     delta_abs: m.delta,
                     delta_pct: m.percent,
-                    threshold: result.threshold,
+                    threshold: m.threshold,
                     status,
                 }
             })
@@ -385,7 +423,12 @@ pub fn compare(config: &CompareConfig) -> BenchResult<CompareResult> {
         (&config.baseline_file, &config.target_file)
     {
         // JSONL comparison
-        let circuits = compare_jsonl_files(baseline, target, config.threshold)?;
+        let circuits = compare_jsonl_files(
+            baseline,
+            target,
+            config.threshold,
+            &config.metric_thresholds,
+        )?;
         let baseline_ref = baseline
             .file_name()
             .and_then(|s| s.to_str())
@@ -399,7 +442,12 @@ pub fn compare(config: &CompareConfig) -> BenchResult<CompareResult> {
         (circuits, baseline_ref, target_ref)
     } else if let (Some(baseline), Some(target)) = (&config.baseline_json, &config.target_json) {
         // Single JSON comparison (legacy)
-        let circuits = compare_json_files(baseline, target, config.threshold)?;
+        let circuits = compare_json_files(
+            baseline,
+            target,
+            config.threshold,
+            &config.metric_thresholds,
+        )?;
         let baseline_ref = baseline
             .file_name()
             .and_then(|s| s.to_str())
@@ -435,6 +483,7 @@ pub fn compare(config: &CompareConfig) -> BenchResult<CompareResult> {
         baseline_ref,
         target_ref,
         threshold: config.threshold,
+        metric_thresholds: config.metric_thresholds.clone(),
         circuits,
         total_regressions,
         total_improvements,
@@ -459,6 +508,7 @@ pub fn run(
         baseline_json: baseline,
         target_json: contender,
         threshold,
+        metric_thresholds: BTreeMap::new(),
         format: format.clone(),
         json_out: json_out.clone(),
     };
@@ -527,16 +577,16 @@ mod tests {
 
     #[test]
     fn test_format_value_size() {
-        assert_eq!(format_value(500.0, "proof_size"), "500 B");
-        assert_eq!(format_value(1024.0, "proof_size"), "1.0 KB");
-        assert_eq!(format_value(1048576.0, "proof_size"), "1.0 MB");
+        assert_eq!(format_value(500.0, "proof_size_bytes"), "500 B");
+        assert_eq!(format_value(1024.0, "proof_size_bytes"), "1.0 KB");
+        assert_eq!(format_value(1048576.0, "proof_size_bytes"), "1.0 MB");
     }
 
     #[test]
     fn test_format_value_gates() {
-        assert_eq!(format_value(500.0, "gates"), "500");
-        assert_eq!(format_value(1500.0, "gates"), "1.5K");
-        assert_eq!(format_value(1500000.0, "gates"), "1.50M");
+        assert_eq!(format_value(500.0, "total_gates"), "500");
+        assert_eq!(format_value(1500.0, "total_gates"), "1.5K");
+        assert_eq!(format_value(1500000.0, "total_gates"), "1.50M");
     }
 
     #[test]
@@ -550,7 +600,7 @@ mod tests {
             "total_gates": 1000
         });
 
-        let results = compare_values(&baseline, &target, 10.0);
+        let results = compare_values(&baseline, &target, 10.0, &BTreeMap::new());
 
         let prove_metric = results.iter().find(|m| m.metric == "prove_ms").unwrap();
         assert_eq!(prove_metric.status, CompareStatus::Regression);
@@ -566,7 +616,7 @@ mod tests {
             "prove_time_ms": 80.0  // 20% decrease
         });
 
-        let results = compare_values(&baseline, &target, 10.0);
+        let results = compare_values(&baseline, &target, 10.0, &BTreeMap::new());
 
         let prove_metric = results.iter().find(|m| m.metric == "prove_ms").unwrap();
         assert_eq!(prove_metric.status, CompareStatus::Improvement);
@@ -581,7 +631,7 @@ mod tests {
             "prove_time_ms": 105.0  // 5% increase, below threshold
         });
 
-        let results = compare_values(&baseline, &target, 10.0);
+        let results = compare_values(&baseline, &target, 10.0, &BTreeMap::new());
 
         let prove_metric = results.iter().find(|m| m.metric == "prove_ms").unwrap();
         assert_eq!(prove_metric.status, CompareStatus::Unchanged);
@@ -590,5 +640,31 @@ mod tests {
     #[test]
     fn test_default_threshold() {
         assert_eq!(DEFAULT_THRESHOLD, 10.0);
+    }
+
+    #[test]
+    fn test_compare_values_uses_metric_specific_threshold() {
+        let baseline = serde_json::json!({
+            "prove_time_ms": 100.0,
+            "total_gates": 1000
+        });
+        let target = serde_json::json!({
+            "prove_time_ms": 120.0,
+            "total_gates": 1001
+        });
+        let thresholds = BTreeMap::from([
+            ("prove_ms".to_string(), 25.0),
+            ("total_gates".to_string(), 0.0),
+        ]);
+
+        let results = compare_values(&baseline, &target, 10.0, &thresholds);
+
+        let prove_metric = results.iter().find(|m| m.metric == "prove_ms").unwrap();
+        assert_eq!(prove_metric.threshold, 25.0);
+        assert_eq!(prove_metric.status, CompareStatus::Unchanged);
+
+        let gates_metric = results.iter().find(|m| m.metric == "total_gates").unwrap();
+        assert_eq!(gates_metric.threshold, 0.0);
+        assert_eq!(gates_metric.status, CompareStatus::Regression);
     }
 }

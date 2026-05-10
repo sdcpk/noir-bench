@@ -67,19 +67,29 @@ fn open_jsonl(path: &PathBuf) -> BenchResult<File> {
     Ok(f)
 }
 
+fn candidate_prover_toml_paths(path: &PathBuf, params: Option<u64>) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Some(parent) = path.parent().and_then(|dir| dir.parent()) {
+        if let Some(param) = params {
+            candidates.push(parent.join(format!("Prover.{param}.toml")));
+        }
+        candidates.push(parent.join("Prover.toml"));
+    }
+
+    // Try alongside artifact with .toml extension
+    let mut p = path.clone();
+    p.set_extension("toml");
+    candidates.push(p);
+
+    candidates
+}
+
 /// Find Prover.toml for a circuit spec.
 fn find_prover_toml(spec: &CircuitSpec) -> Option<PathBuf> {
-    // Try alongside artifact with .toml extension
-    let mut p = spec.path.clone();
-    p.set_extension("toml");
-    if p.exists() {
-        return Some(p);
-    }
-    // Try parent of target/
-    spec.path
-        .parent()
-        .and_then(|dir| dir.parent().map(|pp| pp.join("Prover.toml")))
-        .filter(|cand| cand.exists())
+    candidate_prover_toml_paths(&spec.path, spec.params)
+        .into_iter()
+        .find(|cand| cand.exists())
 }
 
 /// Run benchmark for a single circuit using engine workflow.
