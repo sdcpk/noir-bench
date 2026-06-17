@@ -1,0 +1,5 @@
+leaf = 7
+path = [11, 12, 13, 14, 15, 16, 17, 18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+index_bits = [false, true, false, true, false, true, false, true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false]
+depth = 8
+root = "0x2c2f2fa00f5f802963034349ff07ccb8e1cb8afeab9e789b9dc7dfd512c2e360"
