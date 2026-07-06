@@ -1,4 +1,4 @@
-global MAX_DEPTH: u32 = 32;
+global MAX_DEPTH: u32 = 16;
 
 fn merkle_parent(left: Field, right: Field) -> Field {
     std::hash::poseidon2_permutation([left, right, 0, 0])[0]

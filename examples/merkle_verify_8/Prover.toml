@@ -1,0 +1,5 @@
+leaf_value = 5
+depth = 3
+root = "0x28067f133b656d56864db03eb3e853a470fd29a226a7ac095e7c0c0f5327317f"
+path = [11, 22, 33, 0, 0, 0, 0, 0]
+index_bits = [true, false, true, false, false, false, false, false]
